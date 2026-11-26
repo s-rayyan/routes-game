@@ -12,15 +12,18 @@ A calm city-traffic puzzle for your phone, inspired by Mini Motorways. Draw road
 
 Everything is one file, `index.html`. No build step.
 
-## Leaderboard setup (Firebase)
+## Leaderboard setup (Supabase)
 
-The leaderboard uses the `gamehub-7b1e2` Firebase project. Each device signs in anonymously, so players only pick a nickname. One-time setup:
+The leaderboard runs on a free Supabase project. The game talks to it straight from the browser, so there's no server to run. Players only pick a nickname. Each device keeps a random secret, so nobody can change anyone else's score.
 
-1. **Firebase console → Authentication → Sign-in method → Anonymous → Enable.**
-2. **Authentication → Settings → Authorized domains → Add `s-rayyan.github.io`.**
-3. **Firestore → Rules:** replace the rules with [`firestore.rules`](firestore.rules) from this repo and **Publish**. It keeps the Game Hub's existing `users/{uid}` rules exactly as they are and adds two read-only-to-the-world, write-your-own-entry collections: `routes_players` and `routes_daily/{date}/scores`. Scores can only go up, names are limited to letters, numbers, spaces and `- _ .`, and entries can't be deleted from the client. (Also copy the file into the `game-hub` repo if you deploy rules from there with `firebase deploy --only firestore:rules`, so the two don't drift.)
+1. Create a free project at [supabase.com](https://supabase.com).
+2. **SQL Editor → New query:** paste in [`supabase.sql`](supabase.sql) and press **Run**.
+3. **Project Settings → API:** copy the **Project URL** and the **anon / publishable key**. Both are meant to be public.
+4. In `index.html`, set `SB_URL` and `SB_KEY` to those two values and push.
 
-The rules were tested against the Firestore emulator: players can only write their own entry, scores can't decrease, junk values and markup in names are rejected, and the hub's saves stay private.
+Until step 4 is done, the game works normally and the leaderboard says it isn't switched on yet.
+
+The SQL keeps the tables locked. The browser can only call three functions: post your score, post your daily score, and read the board. Scores only ever go up. Names are limited to 2–16 letters, numbers, spaces and `- _ .`. Daily scores are only accepted for today's map. These checks were tested against a real Postgres database.
 
 ## Hosting
 

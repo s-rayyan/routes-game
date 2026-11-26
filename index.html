@@ -952,8 +952,10 @@ addEventListener('pagehide',()=>{saveNow(true);saveBest();});
   }catch(e){cloudDoc=null;statsDoc=null;}
 })();
 
-/* ---------- leaderboard (Firebase, on the web version) ---------- */
-const FB_CFG={apiKey:"AIzaSyCysjpUPbo7gKp43qq8RH2MZOa2V6CdG0k",authDomain:"gamehub-7b1e2.firebaseapp.com",projectId:"gamehub-7b1e2",storageBucket:"gamehub-7b1e2.firebasestorage.app",messagingSenderId:"888149575208",appId:"1:888149575208:web:4e1827a7d2a5b07535171d"};
+/* ---------- leaderboard (Supabase, on the web version) ---------- */
+// Fill these two in from Supabase -> Project Settings -> API (both are public, safe to ship).
+const SB_URL='';
+const SB_KEY='';
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const NAME_RE=/^[A-Za-z0-9 _.-]{2,16}$/;
 let playerName='';try{playerName=localStorage.getItem('routes-name')||'';if(!NAME_RE.test(playerName))playerName='';}catch(e){}
@@ -962,52 +964,45 @@ function lbInit(){
   if(lbPromise)return lbPromise;
   lbPromise=(async()=>{
     if(!onWeb)return null;
-    try{
-      const base='https://www.gstatic.com/firebasejs/12.7.0/';
-      const load=Promise.all([import(base+'firebase-app.js'),import(base+'firebase-firestore.js'),import(base+'firebase-auth.js')]);
-      const [A,F,U]=await Promise.race([load,new Promise((_,no)=>setTimeout(()=>no(new Error('timeout')),9000))]);
-      const app=A.initializeApp(FB_CFG,'routes'),db=F.getFirestore(app),auth=U.getAuth(app);
-      let emu='';try{emu=localStorage.getItem('routes-fb-emu')||'';}catch(e){}
-      if(emu){const [h,p]=emu.split(':');F.connectFirestoreEmulator(db,h,+p);U.connectAuthEmulator(auth,'http://'+h+':9099',{disableWarnings:true});}
-      const cred=await U.signInAnonymously(auth);
-      return {F,db,uid:cred.user.uid};
-    }catch(e){console.warn('leaderboard offline',e&&e.message);lbPromise=null;return null;}
+    let url=SB_URL,key=SB_KEY;
+    try{const o=JSON.parse(localStorage.getItem('routes-sb')||'null');if(o&&o.url){url=o.url;key=o.key||'';}}catch(e){}
+    if(!url||!key)return null;
+    let me=null;
+    try{me=JSON.parse(localStorage.getItem('routes-lb-id')||'null');}catch(e){}
+    if(!me||!/^[0-9a-f-]{36}$/.test(me.id||'')||!/^[0-9a-f]{32,}$/.test(me.secret||'')){
+      const hex=n=>[...crypto.getRandomValues(new Uint8Array(n))].map(b=>b.toString(16).padStart(2,'0')).join('');
+      const h=hex(16);
+      me={id:h.slice(0,8)+'-'+h.slice(8,12)+'-4'+h.slice(13,16)+'-'+((parseInt(h[16],16)&3)|8).toString(16)+h.slice(17,20)+'-'+h.slice(20,32),secret:hex(24)};
+      try{localStorage.setItem('routes-lb-id',JSON.stringify(me));}catch(e){}
+    }
+    const headers={'Content-Type':'application/json',apikey:key};
+    if(/^eyJ/.test(key))headers.Authorization='Bearer '+key;
+    const rpc=async(fn,args)=>{
+      const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),9000);
+      try{
+        const r=await fetch(url.replace(/\/+$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers,body:JSON.stringify(args),signal:ctl.signal});
+        if(!r.ok)throw new Error(fn+' '+r.status);
+        return await r.json();
+      }finally{clearTimeout(t);}
+    };
+    return {rpc,uid:me.id,secret:me.secret};
   })();
   return lbPromise;
 }
 const allTimeBest=()=>Math.max(best||0,...Object.values(stats.cityBest||{}).map(Number).filter(Number.isFinite),0);
+const lbWeek=w=>Math.max(1,Math.min(10000,w|0));
 async function lbPostPlayer(score,week,city){
   const lb=await lbInit();if(!lb||!playerName)return null;
-  const {F,db,uid}=lb,ref=F.doc(db,'routes_players',uid);
-  const cur=await F.getDoc(ref),old=cur.exists()?cur.data():null;
-  const keep=old&&old.best>=score;
-  if(!old||!keep||old.name!==playerName)
-    await F.setDoc(ref,{name:playerName,best:keep?old.best:score,week:Math.max(1,Math.min(1000,keep?old.week:week)),city:String(keep?old.city:city).slice(0,16),t:F.serverTimestamp()});
-  const mine=keep?old.best:score,col=F.collection(db,'routes_players');
-  const [above,all]=await Promise.all([F.getCountFromServer(F.query(col,F.where('best','>',mine))),F.getCountFromServer(col)]);
-  return {rank:above.data().count+1,of:all.data().count,score:mine};
+  return lb.rpc('routes_submit',{p_id:lb.uid,p_secret:lb.secret,p_name:playerName,p_score:Math.max(0,score|0),p_week:lbWeek(week),p_city:String(city||'').slice(0,16)});
 }
 async function lbPostDaily(day,score,week){
   const lb=await lbInit();if(!lb||!playerName)return null;
-  const {F,db,uid}=lb,ref=F.doc(db,'routes_daily',day,'scores',uid);
-  const cur=await F.getDoc(ref),old=cur.exists()?cur.data():null,keep=old&&old.score>=score;
-  if(!old||!keep||old.name!==playerName)
-    await F.setDoc(ref,{name:playerName,score:keep?old.score:score,week:Math.max(1,Math.min(1000,keep?old.week:week)),t:F.serverTimestamp()});
-  const mine=keep?old.score:score,col=F.collection(db,'routes_daily',day,'scores');
-  const [above,all]=await Promise.all([F.getCountFromServer(F.query(col,F.where('score','>',mine))),F.getCountFromServer(col)]);
-  return {rank:above.data().count+1,of:all.data().count,score:mine};
+  return lb.rpc('routes_submit_daily',{p_id:lb.uid,p_secret:lb.secret,p_name:playerName,p_day:day,p_score:Math.max(0,score|0),p_week:lbWeek(week)});
 }
 async function lbTop(kind,day){
   const lb=await lbInit();if(!lb)return null;
-  const {F,db,uid}=lb;
-  const col=kind==='daily'?F.collection(db,'routes_daily',day,'scores'):F.collection(db,'routes_players');
-  const field=kind==='daily'?'score':'best';
-  const snap=await F.getDocs(F.query(col,F.orderBy(field,'desc'),F.limit(30)));
-  const rows=snap.docs.map(d=>({id:d.id,name:d.data().name,score:d.data()[field],week:d.data().week,city:d.data().city}));
-  let me=rows.find(r=>r.id===uid)||null,myRank=me?rows.indexOf(me)+1:0;
-  if(!me){const md=await F.getDoc(F.doc(db,...(kind==='daily'?['routes_daily',day,'scores',uid]:['routes_players',uid])));
-    if(md.exists()){me={id:uid,...md.data(),score:md.data()[field]};const c=await F.getCountFromServer(F.query(col,F.where(field,'>',me.score)));myRank=c.data().count+1;}}
-  return {rows,uid,me,myRank};
+  const r=await lb.rpc('routes_board',{p_kind:kind==='daily'?'daily':'all',p_day:day,p_id:lb.uid});
+  return {rows:r.rows||[],uid:lb.uid,me:r.me||null,myRank:r.myRank|0};
 }
 function nameField(id){return '<input class="name-in" id="'+id+'" maxlength="16" autocomplete="off" autocapitalize="words" placeholder="Your nickname" value="'+esc(playerName)+'">';}
 function saveName(v){
@@ -1038,7 +1033,7 @@ function showLeaderboard(tab,back){
   const list=$('lbList');
   lbTop(tab,tk).then(r=>{
     if($('lbList')!==list)return;
-    if(!r){list.innerHTML='<div class="lb-msg">Can&rsquo;t reach the leaderboard right now.</div>';return;}
+    if(!r){list.innerHTML='<div class="lb-msg">The leaderboard isn&rsquo;t switched on yet.</div>';return;}
     if(!r.rows.length){list.innerHTML='<div class="lb-msg">'+(tab==='daily'?'Nobody has played today&rsquo;s map yet. Be first!':'No scores yet. Be first!')+'</div>';return;}
     const medal=i=>i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1);
     let h=r.rows.map((x,i)=>'<div class="lb-row'+(x.id===r.uid?' me':'')+'"><span class="rk">'+medal(i)+'</span><span class="nm">'+esc(x.name)+'</span><span class="sc">'+(x.score|0)+'</span><span class="wk">wk '+(x.week|0)+'</span></div>').join('');
