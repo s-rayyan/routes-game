@@ -135,6 +135,13 @@ h2{font-size:26px;font-weight:900;margin:6px 0 2px}
 .name-in{width:100%;height:48px;border:2px solid #ece6da;border-radius:14px;padding:0 14px;font:800 17px Nunito,system-ui,sans-serif;color:var(--ink);background:#fff;margin-top:12px;user-select:text;-webkit-user-select:text}
 .name-in:focus{outline:none;border-color:var(--ink)}
 .join{background:#f4f0e7;border-radius:18px;padding:12px;margin-top:12px;text-align:left}.join b{font-size:14px}.join .row2{margin-top:8px}.join .name-in{margin-top:8px;height:44px}.join .primary{margin-top:0;height:44px;font-size:15px}
+.shop{display:grid;gap:10px;margin-top:14px;text-align:left}
+.item{display:flex;align-items:center;gap:12px;background:#f4f0e7;border-radius:20px;padding:10px 12px;animation:rise .45s cubic-bezier(.2,1.35,.4,1) both}
+.item .ico{flex:none;width:50px;height:50px;border-radius:50%;background:var(--card);display:grid;place-items:center;box-shadow:var(--sh)}.item .ico svg{width:28px;height:28px}
+.item div{flex:1;min-width:0}.item b{display:block;font-size:15px;font-weight:900}.item span{display:block;font-size:12px;font-weight:700;color:var(--soft);line-height:1.3}
+.item button{flex:none;height:40px;padding:0 14px;border-radius:999px;background:var(--ink);color:#fff;font-weight:800;font-size:14px;transition:transform .15s,opacity .2s}
+.item button:active{transform:scale(.94)}.item button:disabled{opacity:.35}
+.wallet{display:inline-flex;align-items:center;gap:8px;background:#f4f0e7;border-radius:999px;padding:7px 14px 7px 10px;font-weight:900;font-size:15px;margin-top:10px}.wallet svg{width:22px;height:22px}
 .big{font-size:84px;font-weight:900;line-height:1;margin:12px 0 0;letter-spacing:-2px}
 </style>
 </head>
@@ -167,6 +174,7 @@ h2{font-size:26px;font-weight:900;margin:6px 0 2px}
 <div class="mini-col">
   <button class="mini" id="bMenu" aria-label="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
   <button class="mini dim" id="bUndo" aria-label="Undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4.5 11.5 9 16"/><path d="M5 11.5h9a5 5 0 0 1 0 10h-2"/></svg></button>
+  <button class="mini" id="bShop" aria-label="Shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2.2l2.3 11h10.2l2.1-7.5H6.4"/><circle cx="9.5" cy="19" r="1.5"/><circle cx="16.5" cy="19" r="1.5"/></svg></button>
   <button class="mini" id="bHeat" aria-label="Traffic view"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><path d="M4 18c3-8 13-8 16 0" stroke="#5fc28e" stroke-width="3"/><path d="M8.2 11.4c2.4-2 5.2-2 7.6 0" stroke="#f2c14e" stroke-width="3"/><path d="M12 18l3-6" stroke="currentColor" stroke-width="2.6"/><circle cx="12" cy="18" r="1.8" fill="currentColor"/></svg></button>
 </div>
 <div id="targetTag"></div>
@@ -275,7 +283,8 @@ const ACH=[
   ['city3','🗺️','Unlock 3 cities'],['city5','🌍','Unlock every city'],['t5k','🏆','5,000 trips in total'],['beat','🏁','Beat a friend’s challenge']];
 const levelOf=xp=>{let L=1,need=60;while(xp>=need){xp-=need;L++;need=60+40*(L-1);}return {L,into:xp,need};};
 let achQueue=[];
-function award(id){
+function award(id){return;   // achievements removed
+
   if(!stats.ach)stats.ach={};
   if(stats.ach[id])return;
   const a=ACH.find(x=>x[0]===id);if(!a)return;
@@ -465,7 +474,7 @@ function clearOfHud(i){
   const [z,bx,by]=viewOf(S.B),sx=(X(i)+.5-bx)*z+W/2,sy=(Y(i)+.5-by)*z+H/2;
   if(sy-z*.9<topH)return false;                       // top bar (+ room for pins)
   if(sy+z*.45>H-botH&&Math.abs(sx-W/2)<190)return false; // tool tray
-  if(sx+z*.4>W-64&&sy-z*.5<topH+156)return false;          // menu / undo / traffic buttons
+  if(sx+z*.4>W-64&&sy-z*.5<topH+206)return false;          // menu / undo / shop / traffic buttons
   return sx>z*.3&&sx<W-z*.3;
 }
 function pickCell(pred,level){
@@ -1127,6 +1136,35 @@ function growWorld(){
   edgeCars=new Map();occ=new Int16Array(N);
   return true;
 }
+const SHOP=[
+  {k:'round',name:'Roundabout',desc:'Lets 3 cars through a junction at once',cost:10},
+  {k:'light',name:'Traffic light',desc:'2 cars at a time, taking turns by direction',cost:8},
+  {k:'mway',name:'Motorway',desc:'A fast flyover between two spots',cost:20},
+  {k:'bridge',name:'Bridge',desc:'Cross water with a road',cost:8}];
+const shopHas=k=>k==='round'?S.rounds:k==='light'?S.lights:k==='mway'?S.mways:S.bridges;
+function showShop(focus){
+  if(!S||S.over||S.reward)return;
+  const wasPaused=!!S.paused;S.paused=true;setSpeedUI();
+  const draw=()=>{
+    openModal('<div class="kicker">Shop</div><h2>Trade road tiles</h2><div class="wallet">'+ICON.road+' '+S.pieces+' road tiles</div><div class="shop">'+
+      SHOP.map((it,i)=>'<div class="item" style="animation-delay:'+(i*.05)+'s'+(focus===it.k?';box-shadow:0 0 0 2.5px var(--ink)':'')+'"><span class="ico">'+ICON[it.k]+'</span><div><b>'+it.name+' <span style="display:inline;font-size:12px">· you have '+shopHas(it.k)+'</span></b><span>'+it.desc+'</span></div>'+
+        '<button data-k="'+it.k+'"'+(S.pieces<it.cost?' disabled':'')+'>'+it.cost+' tiles</button></div>').join('')+
+      '</div><button class="primary" id="shopDone">Done</button>');
+    $('modal').querySelectorAll('.item button').forEach(b=>b.onclick=()=>buy(b.dataset.k));
+    $('shopDone').onclick=()=>{closeModal();S.paused=wasPaused;setSpeedUI();};
+  };
+  const buy=k=>{
+    const it=SHOP.find(x=>x.k===k);if(!it)return;
+    if(S.pieces<it.cost){toast('Not enough road tiles');sfx.deny();return;}
+    S.pieces-=it.cost;
+    if(k==='round')S.rounds++;else if(k==='light')S.lights++;else if(k==='mway')S.mways++;else S.bridges++;
+    undoStack=[];syncUndo();               // a purchase can't be undone by rewinding a road edit
+    tone(659.3,.5,.03,1);later(()=>tone(880,.7,.025,1),80);
+    toast('Bought a '+it.name.toLowerCase());syncHud();
+    draw();
+  };
+  draw();
+}
 function showReward(){
   const hasWater=S.water.some(v=>v);
   let pool=[{k:'road',n:12,lbl:'Road tiles'},{k:'bridge',n:hasWater?ri(1,2):1,lbl:'Bridge'},{k:'round',n:1,lbl:'Roundabout'}];
@@ -1176,8 +1214,7 @@ function showStats(){
   openModal('<div class="kicker">Your stats</div><div class="scroll">'+levelHtml(0)+'<div class="stats">'+tiles.map(([v,l])=>'<div class="stat"><b>'+v+'</b><span>'+l+'</span></div>').join('')+'</div>'+
     '<div class="sub" style="margin:16px 0 4px;text-align:left">Best in each city</div>'+CITIES.map(c=>'<div class="cb"><span>'+c.name+(cityUnlocked(c)?'':' 🔒')+'</span><span>'+(stats.cityBest[c.id]||0)+'</span></div>').join('')+
     '<div class="cb"><span>Today&rsquo;s daily map</span><span>'+(stats.daily[tk]||0)+'</span></div>'+
-    '<div class="sub" style="margin:16px 0 0;text-align:left">Achievements · '+Object.keys(stats.ach||{}).length+'/'+ACH.length+'</div><div class="achs">'+
-    ACH.map(([id,e,n])=>'<div class="ach'+(stats.ach&&stats.ach[id]?'':' off')+'"><em>'+e+'</em><span>'+n+'</span></div>').join('')+'</div></div><button class="primary" id="back">Done</button>');
+    '</div><button class="primary" id="back">Done</button>');
   $('back').onclick=()=>showStart();
 }
 function showHelp(){
@@ -1185,7 +1222,7 @@ function showHelp(){
   openModal('<div class="kicker">How to play</div><ul class="tips"><li><i>'+ICON.road+'</i>Drag from a house&rsquo;s driveway to the building of the same colour.</li>'+
     '<li><i>'+ICON.road+'</i>Tap a house, or drag out of it, to point its driveway any way, even diagonally.</li>'+
     '<li><i>'+ICON.bridge+'</i>Drag across water to build a bridge.</li>'+
-    '<li><i>'+ICON.mway+'</i>Motorways and traffic lights arrive as weekly rewards.</li>'+
+    '<li><i>'+ICON.mway+'</i>Earn motorways, lights and roundabouts weekly, or buy them with road tiles in the shop.</li>'+
     '<li><i>'+ICON.erase+'</i>Erase roads to get the tiles back, or tap undo.</li></ul><button class="primary" id="back">Got it</button>');
   $('back').onclick=()=>showStart();
 }
@@ -1201,7 +1238,7 @@ function showStart(){
     '<button class="'+(pendingSave?'ghost':'primary')+'" id="go">'+(pendingSave?'New game':'Play')+'</button>'+
     '<button class="ghost" id="daily">'+(db?'':'✨ ')+'Daily map · '+prettyDay(tk)+(db?' · best '+db:' · new')+'</button>'+
     '<div class="row2"><button class="ghost" id="lbBtn">🏆 Leaderboard</button><button class="ghost" id="stats">Stats</button></div><button class="link" id="help">How to play</button>'+
-    '<div class="best">'+[best?'Best '+(best|0):'',stats.streak>0&&stats.lastDaily>=prevDay()?'🔥 '+stats.streak+'-day streak':'','🏆 '+Object.keys(stats.ach||{}).length+'/'+ACH.length].filter(Boolean).join(' · ')+'</div>');
+    ([best?'Best '+(best|0):'',stats.streak>0&&stats.lastDaily>=prevDay()?'🔥 '+stats.streak+'-day streak':''].some(Boolean)?'<div class="best">'+[best?'Best '+(best|0):'',stats.streak>0&&stats.lastDaily>=prevDay()?'🔥 '+stats.streak+'-day streak':''].filter(Boolean).join(' · ')+'</div>':''));
   onStart=true;
   if(pendingSave)$('cont').onclick=()=>{audio();onStart=false;const o=pendingSave;pendingSave=null;try{loadGame(o);}catch(e){newGame(true);}closeModal();toast('Welcome back');};
   $('go').onclick=()=>{audio();showCities();};
@@ -1252,7 +1289,6 @@ function showOver(){
     (S.unlocked?'<div class="gift" style="margin-top:12px">🔓 New city unlocked: '+S.unlocked.name+'</div>':'')+
     (S.target?'<div class="gift" style="margin-top:12px">'+(S.beaten?'🏁 You beat your friend’s '+S.target+'!':'🏁 '+(S.target-S.score+1)+' short of your friend’s '+S.target)+'</div>':'')+
     levelHtml(stats.trips-(S.xp0||stats.trips))+
-    ((S.newAch||[]).length?'<div class="chips">'+S.newAch.map((id,i)=>{const a=ACH.find(x=>x[0]===id);return '<span style="animation-delay:'+(i*.08)+'s">'+a[1]+' '+a[2]+'</span>';}).join('')+'</div>':'')+
     '<canvas id="replay" width="'+w*2+'" height="'+h*2+'" style="width:'+w+'px;height:'+h+'px"></canvas><button class="link" id="rep">↻ Watch your city grow</button>'+
     '<div id="lbSlot"></div>'+
     '<button class="primary" id="share" style="margin-top:8px;background:#e9786b">'+(S.daily?'Challenge friends':'Share score')+'</button>'+
@@ -1309,11 +1345,12 @@ function setSpeed(s){S.speed=s;setSpeedUI();}
 function setSpeedUI(){$('pausedTag').classList.toggle('show',!!S.paused&&!modalOpen);$('sPause').classList.toggle('on',!!S.paused);$('sPlay').classList.toggle('on',!S.paused&&S.speed===1);$('sFast').classList.toggle('on',!S.paused&&S.speed===2);}
 $('tRoad').onclick=()=>{audio();setTool('road');};
 $('tErase').onclick=()=>{audio();setTool(tool==='erase'?'road':'erase');};
-$('tRound').onclick=()=>{audio();if(tool==='round'){setTool('road');return;}if(S.rounds<1){deny('tRound');toast('Earn roundabouts from weekly rewards');return;}setTool('round');toast('Tap a busy junction');};
-$('tMway').onclick=()=>{audio();if(tool==='mway'){setTool('road');return;}if(S.mways<1){deny('tMway');toast('Earn motorways from weekly rewards');return;}setTool('mway');toast('Drag between two spots to build a motorway');};
-$('tLight').onclick=()=>{audio();if(tool==='light'){setTool('road');return;}if(S.lights<1){deny('tLight');toast('Earn traffic lights from weekly rewards');return;}setTool('light');toast('Tap a busy junction');};
-$('tBridge').onclick=()=>{audio();anim('tBridge','bump');toast('Drag a road across water to build a bridge');};
+$('tRound').onclick=()=>{audio();if(tool==='round'){setTool('road');return;}if(S.rounds<1){showShop('round');return;}setTool('round');toast('Tap a busy junction');};
+$('tMway').onclick=()=>{audio();if(tool==='mway'){setTool('road');return;}if(S.mways<1){showShop('mway');return;}setTool('mway');toast('Drag between two spots to build a motorway');};
+$('tLight').onclick=()=>{audio();if(tool==='light'){setTool('road');return;}if(S.lights<1){showShop('light');return;}setTool('light');toast('Tap a busy junction');};
+$('tBridge').onclick=()=>{audio();if(S.bridges<1){showShop('bridge');return;}anim('tBridge','bump');toast('Drag a road across water to build a bridge');};
 $('bUndo').onclick=()=>{audio();undo();};
+$('bShop').onclick=()=>{audio();showShop();};
 $('bHeat').onclick=()=>{audio();heatOn=!heatOn;$('bHeat').classList.toggle('on',heatOn);toast(heatOn?'Traffic view: red roads are jammed':'Traffic view off');};
 let pauseHint=false;
 function setPaused(p){
@@ -1867,7 +1904,7 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 resize();newGame(false);pendingSave=readLocal();showStart();requestAnimationFrame(loop);
-window.__routes={showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),award:id=>award(id),shareText:()=>shareText(),levelOf,ACH,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
+window.__routes={showShop:k=>showShop(k),SHOP,showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),award:id=>award(id),shareText:()=>shareText(),levelOf,ACH,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
 })();
 </script>
 </body>
