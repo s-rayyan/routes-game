@@ -28,4 +28,4 @@ The SQL keeps the tables locked. The browser can only call three functions: post
 
 ## Hosting
 
-GitHub Pages: **Settings → Pages → Build and deployment → Deploy from a branch → `main` / `(root)`**.
+Hosted on Render as a static site (`routes-game`), deployed from `main`. Every push goes live automatically.
