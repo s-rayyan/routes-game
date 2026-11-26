@@ -2,7 +2,7 @@
 
 A calm city-traffic puzzle for your phone, inspired by Mini Motorways. Draw roads from houses to the building of the same colour and keep the city moving.
 
-**Play:** https://s-rayyan.github.io/routes-game/
+**Play:** https://routes-game.onrender.com/
 
 - Five cities to unlock, a daily map that is the same for everyone, and an endless mode that keeps growing.
 - Motorways, bridges that bend and cross, roundabouts, traffic lights, diagonal driveways.
