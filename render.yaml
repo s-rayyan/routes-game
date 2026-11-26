@@ -1,0 +1,12 @@
+# Render Blueprint: a free static site served straight from this repo.
+services:
+  - type: web
+    name: routes-game
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
+    autoDeployTrigger: commit
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
