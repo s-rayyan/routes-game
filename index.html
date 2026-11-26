@@ -10,8 +10,8 @@
 <meta name="description" content="Draw roads and keep the city moving. A calm city-traffic puzzle you can play on your phone.">
 <meta property="og:title" content="Routes: can you beat my score?">
 <meta property="og:description" content="Draw roads, keep the city moving. Play free in your browser.">
-<meta property="og:image" content="https://s-rayyan.github.io/routes-game/og.png">
-<meta property="og:url" content="https://s-rayyan.github.io/routes-game/">
+<meta property="og:image" content="https://routes-game.onrender.com/og.png">
+<meta property="og:url" content="https://routes-game.onrender.com/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="manifest" href="manifest.webmanifest">
@@ -272,7 +272,7 @@ function mergeStats(a,b){
   o.lastDaily=[a.lastDaily||'',(b&&b.lastDaily)||''].filter(x=>/^\d{4}-\d\d-\d\d$/.test(x)).sort().pop()||'';
   return o;
 }
-const WEB_URL='https://s-rayyan.github.io/routes-game/';
+const WEB_URL='https://routes-game.onrender.com/';
 const onWeb=(()=>{try{return /^https?:$/.test(location.protocol)&&!/claude|anthropic|usercontent/i.test(location.hostname);}catch(e){return false;}})();
 const SHARE_URL=(()=>{try{return onWeb?location.origin+location.pathname:WEB_URL;}catch(e){return WEB_URL;}})();
 const ACH=[
