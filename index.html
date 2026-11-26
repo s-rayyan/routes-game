@@ -954,8 +954,8 @@ addEventListener('pagehide',()=>{saveNow(true);saveBest();});
 
 /* ---------- leaderboard (Supabase, on the web version) ---------- */
 // Fill these two in from Supabase -> Project Settings -> API (both are public, safe to ship).
-const SB_URL='';
-const SB_KEY='';
+const SB_URL='https://vyyckdylaujxcbwxxijg.supabase.co';
+const SB_KEY='sb_publishable_0eHikIlPMul6Sy-4neY11g_XYjrsCfx';
 const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const NAME_RE=/^[A-Za-z0-9 _.-]{2,16}$/;
 let playerName='';try{playerName=localStorage.getItem('routes-name')||'';if(!NAME_RE.test(playerName))playerName='';}catch(e){}

@@ -16,12 +16,13 @@ Everything is one file, `index.html`. No build step.
 
 The leaderboard runs on a free Supabase project. The game talks to it straight from the browser, so there's no server to run. Players only pick a nickname. Each device keeps a random secret, so nobody can change anyone else's score.
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. **SQL Editor → New query:** paste in [`supabase.sql`](supabase.sql) and press **Run**.
-3. **Project Settings → API:** copy the **Project URL** and the **anon / publishable key**. Both are meant to be public.
-4. In `index.html`, set `SB_URL` and `SB_KEY` to those two values and push.
+It's already set up on the `routes` project (`vyyckdylaujxcbwxxijg`). To move it to a different project:
 
-Until step 4 is done, the game works normally and the leaderboard says it isn't switched on yet.
+1. **SQL Editor → New query:** paste in [`supabase.sql`](supabase.sql) and press **Run**.
+2. **Project Settings → API:** copy the **Project URL** and the **publishable key**. Both are meant to be public.
+3. In `index.html`, set `SB_URL` and `SB_KEY` to those two values and push.
+
+Without the keys, the game works normally and the leaderboard says it isn't switched on yet.
 
 The SQL keeps the tables locked. The browser can only call three functions: post your score, post your daily score, and read the board. Scores only ever go up. Names are limited to 2–16 letters, numbers, spaces and `- _ .`. Daily scores are only accepted for today's map. These checks were tested against a real Postgres database.
 
