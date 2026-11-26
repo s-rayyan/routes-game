@@ -1,0 +1,59 @@
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // Cloud saves: one document per localStorage key, readable and writable only by their owner.
+      // The page only ever writes here for users signed in with Google.
+      match /saves/{saveId} {
+        allow read, delete: if request.auth != null && request.auth.uid == userId;
+
+        allow create, update: if request.auth != null
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['k', 'v', 'd', 'st'])
+          && request.resource.data.k is string
+          && request.resource.data.k.size() > 0
+          && request.resource.data.k.size() <= 1000
+          && request.resource.data.v is string
+          && request.resource.data.v.size() <= 600000
+          && request.resource.data.d is bool
+          && request.resource.data.st == request.time;
+      }
+    }
+
+    // ---- Routes leaderboards ----
+    // Anyone can read the boards. Each player (an anonymous Firebase account per device)
+    // can only write their own entry, only with sane values, and a score can never go down.
+    function routesName(n) {
+      return n is string && n.size() >= 2 && n.size() <= 16 && n.matches('^[A-Za-z0-9 _.-]+$');
+    }
+    function routesScore(v) { return v is int && v >= 0 && v <= 100000; }
+    function routesWeek(v)  { return v is int && v >= 1 && v <= 1000; }
+
+    match /routes_players/{uid} {
+      allow read: if true;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['name', 'best', 'week', 'city', 't'])
+        && routesName(request.resource.data.name)
+        && routesScore(request.resource.data.best)
+        && routesWeek(request.resource.data.week)
+        && request.resource.data.city is string && request.resource.data.city.size() <= 16
+        && request.resource.data.t == request.time
+        && (resource == null || request.resource.data.best >= resource.data.best);
+      allow delete: if false;
+    }
+
+    match /routes_daily/{day}/scores/{uid} {
+      allow read: if true;
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.keys().hasOnly(['name', 'score', 'week', 't'])
+        && routesName(request.resource.data.name)
+        && routesScore(request.resource.data.score)
+        && routesWeek(request.resource.data.week)
+        && request.resource.data.t == request.time
+        && (resource == null || request.resource.data.score >= resource.data.score);
+      allow delete: if false;
+    }
+  }
+}
