@@ -143,6 +143,10 @@ h2{font-size:26px;font-weight:900;margin:6px 0 2px}
 .name-in:focus{outline:none;box-shadow:0 0 0 2.5px var(--ink),var(--sh)}
 .hello{display:inline-flex;align-items:center;gap:7px;background:var(--card);box-shadow:var(--sh);border-radius:999px;height:34px;padding:0 12px 0 6px;font-weight:900;font-size:14px;margin-bottom:12px}.hello i{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;color:#fff;font-style:normal;font-size:12px}.hello .ic{width:14px;height:14px;color:var(--soft)}
 .best .ic{width:14px;height:14px;vertical-align:-2px}.chips .ic{width:15px;height:15px}
+.err{min-height:18px;margin-top:10px;font-size:13.5px;font-weight:800;color:#d8574a}
+.avatar{width:64px;height:64px;border-radius:20px;margin:12px auto 10px;display:grid;place-items:center;color:#fff;font-size:28px;font-weight:900;box-shadow:var(--sh)}
+.synced{display:inline-flex;align-items:center;gap:7px;margin-top:12px;background:var(--card);box-shadow:var(--sh);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:800}.synced .ic{width:17px;height:17px;color:#58a76c}
+.acct-cta{color:var(--ink);margin-top:2px}.acct-cta .ic{color:#5a8fd6}
 .note{font-size:12.5px;font-weight:700;color:var(--soft);margin-top:10px}
 .join{background:var(--card);box-shadow:var(--sh);border-radius:22px;padding:12px;margin-top:12px;text-align:left}.join b{font-size:14px}.join .row2{margin-top:8px}.join .name-in{margin-top:0;height:46px;font-size:16px;box-shadow:none;background:var(--ground)}.join .primary{margin-top:0;height:44px;font-size:15px}
 .shop{display:grid;gap:10px;margin-top:14px;text-align:left}
@@ -949,6 +953,8 @@ const UIC=(()=>{const g=d=>'<svg viewBox="0 0 24 24" fill="none" stroke="current
   replay:g('<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.5v4h4"/>'),
   again:g('<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>'),
   home:g('<path d="M4 11 12 4l8 7M6.5 9.5V20h11V9.5"/>'),
+  cloud:g('<path d="M7 18.5h10a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7 9.6 4.5 4.5 0 0 0 7 18.5z"/>'),
+  logout:g('<path d="M14 4.5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h7M11 12h9M17 8.5l3.5 3.5-3.5 3.5"/>'),
   flame:g('<path d="M12 21c-3.5 0-6-2.4-6-5.6 0-3.2 2.6-4.6 3.4-8.4 2 1.3 3 3 3 4.6 1-.6 1.6-1.6 1.8-2.8C16.5 10.5 18 12.9 18 15.4 18 18.6 15.5 21 12 21z"/>')};})();
 const ic=(k,cls)=>'<span class="ic'+(cls?' '+cls:'')+'">'+UIC[k]+'</span>';
 
@@ -960,34 +966,101 @@ const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const NAME_RE=/^[A-Za-z0-9 _.-]{2,16}$/;
 let playerName='';try{playerName=localStorage.getItem('routes-name')||'';if(!NAME_RE.test(playerName))playerName='';}catch(e){}
 let lbPromise=null;
+const sbCfg=()=>{let url=SB_URL,key=SB_KEY;try{const o=JSON.parse(localStorage.getItem('routes-sb')||'null');if(o&&o.url){url=o.url;key=o.key||'';}}catch(e){}return url&&key?{url,key}:null;};
+const lbOn=()=>onWeb&&!!sbCfg();
+let acct=null;try{const a=JSON.parse(localStorage.getItem('routes-acct')||'null');if(a&&/^[A-Za-z0-9_.-]{3,16}$/.test(a.username||''))acct=a;}catch(e){}
+function newIdentity(){
+  const hex=n=>[...crypto.getRandomValues(new Uint8Array(n))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  const h=hex(16);
+  const me={id:h.slice(0,8)+'-'+h.slice(8,12)+'-4'+h.slice(13,16)+'-'+((parseInt(h[16],16)&3)|8).toString(16)+h.slice(17,20)+'-'+h.slice(20,32),secret:hex(24)};
+  try{localStorage.setItem('routes-lb-id',JSON.stringify(me));}catch(e){}
+  return me;
+}
 function lbInit(){
   if(lbPromise)return lbPromise;
   lbPromise=(async()=>{
     if(!onWeb)return null;
-    let url=SB_URL,key=SB_KEY;
-    try{const o=JSON.parse(localStorage.getItem('routes-sb')||'null');if(o&&o.url){url=o.url;key=o.key||'';}}catch(e){}
-    if(!url||!key)return null;
+    const cfg=sbCfg();if(!cfg)return null;
     let me=null;
     try{me=JSON.parse(localStorage.getItem('routes-lb-id')||'null');}catch(e){}
-    if(!me||!/^[0-9a-f-]{36}$/.test(me.id||'')||!/^[0-9a-f]{32,}$/.test(me.secret||'')){
-      const hex=n=>[...crypto.getRandomValues(new Uint8Array(n))].map(b=>b.toString(16).padStart(2,'0')).join('');
-      const h=hex(16);
-      me={id:h.slice(0,8)+'-'+h.slice(8,12)+'-4'+h.slice(13,16)+'-'+((parseInt(h[16],16)&3)|8).toString(16)+h.slice(17,20)+'-'+h.slice(20,32),secret:hex(24)};
-      try{localStorage.setItem('routes-lb-id',JSON.stringify(me));}catch(e){}
-    }
-    const headers={'Content-Type':'application/json',apikey:key};
-    if(/^eyJ/.test(key))headers.Authorization='Bearer '+key;
+    if(!me||!/^[0-9a-f-]{36}$/.test(me.id||'')||!/^[0-9a-f]{32,}$/.test(me.secret||''))me=newIdentity();
+    const headers={'Content-Type':'application/json',apikey:cfg.key};
+    if(/^eyJ/.test(cfg.key))headers.Authorization='Bearer '+cfg.key;
     const rpc=async(fn,args)=>{
       const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),9000);
       try{
-        const r=await fetch(url.replace(/\/+$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers,body:JSON.stringify(args),signal:ctl.signal});
-        if(!r.ok)throw new Error(fn+' '+r.status);
+        const r=await fetch(cfg.url.replace(/\/+$/,'')+'/rest/v1/rpc/'+fn,{method:'POST',headers,body:JSON.stringify(args),signal:ctl.signal});
+        if(!r.ok){let m='';try{m=(await r.json()).message||'';}catch(e){}const err=new Error(m||fn+' '+r.status);err.status=r.status;throw err;}
         return await r.json();
       }finally{clearTimeout(t);}
     };
-    return {rpc,uid:me.id,secret:me.secret};
+    const lb={rpc,uid:me.id,secret:me.secret};
+    if(acct)acctAttach(lb);
+    return lb;
   })();
   return lbPromise;
+}
+/* ---------- accounts: same progress on every phone ---------- */
+let acctSyncedAt=0;
+function acctAttach(lb){
+  // save/stats writes go to your account (same interface the Claude version uses)
+  const put=a=>lb.rpc('routes_sync_put',{p_id:lb.uid,p_secret:lb.secret,...a}).then(r=>{if(r&&r.error)acctLost();else acctSyncedAt=Date.now();return r;},e=>{if(/not signed in/.test(e.message))acctLost();throw e;});
+  cloudDoc={set:o=>put({p_save:o}),delete:()=>put({p_clear:true})};
+  statsDoc={set:o=>put({p_stats:o.stats,p_best:Math.trunc(+o.best||0)})};
+}
+function acctLost(){   // the login was removed (logged out elsewhere): carry on as a guest
+  if(!acct)return;
+  acct=null;try{localStorage.removeItem('routes-acct');}catch(e){}
+  cloudDoc=null;statsDoc=null;newIdentity();lbPromise=null;
+  toast('Logged out of your account');
+}
+async function acctPull(){
+  const lb=await lbInit();if(!lb||!acct)return false;
+  let r;try{r=await lb.rpc('routes_sync_get',{p_id:lb.uid,p_secret:lb.secret});}catch(e){if(/not signed in/.test(e.message))acctLost();return false;}
+  if(!r||r.error){acctLost();return false;}
+  if(r.stats&&typeof r.stats==='object')stats=mergeStats(stats,r.stats);
+  const b=Math.trunc(+r.best||0);if(b>best)best=b;
+  try{localStorage.setItem('routes-best',String(best));localStorage.setItem('routes-stats',JSON.stringify(stats));}catch(e){}
+  const local=readLocal(),inGame=S&&!S.over&&!onStart;
+  if(r.save&&validSave(r.save)&&(!local||r.save.savedAt>local.savedAt)){
+    if(!inGame){pendingSave=JSON.parse(JSON.stringify(r.save));try{localStorage.setItem(SAVE_KEY,JSON.stringify(r.save));}catch(e){}}
+  }else if(local){cloudWrite(local);}
+  saveBest();acctSyncedAt=Date.now();
+  return true;
+}
+function acctUseLogin(lb,r){
+  acct={username:r.username};
+  try{localStorage.setItem('routes-acct',JSON.stringify(acct));localStorage.setItem('routes-lb-id',JSON.stringify({id:r.id,secret:r.token}));}catch(e){}
+  lb.uid=r.id;lb.secret=r.token;acctAttach(lb);
+  if(NAME_RE.test(r.name||'')){playerName=r.name;try{localStorage.setItem('routes-name',playerName);}catch(e){}}
+}
+async function acctSignup(username,password){
+  const lb=await lbInit();if(!lb)return 'Accounts need the web version';
+  if(!playerName)return 'Pick a name first';
+  let r;try{r=await lb.rpc('routes_signup',{p_id:lb.uid,p_secret:lb.secret,p_name:playerName,p_username:username,p_password:password});}catch(e){return 'Couldn’t connect. Try again';}
+  if(r.error)return r.error;
+  acct={username:r.username};try{localStorage.setItem('routes-acct',JSON.stringify(acct));}catch(e){}
+  acctAttach(lb);
+  const local=readLocal();if(local)cloudWrite(local);
+  saveBest();acctSyncedAt=Date.now();
+  return null;
+}
+async function acctLogin(username,password){
+  const lb=await lbInit();if(!lb)return 'Accounts need the web version';
+  let r;try{r=await lb.rpc('routes_login',{p_username:username,p_password:password,p_old_id:lb.uid,p_old_secret:lb.secret});}catch(e){return 'Couldn’t connect. Try again';}
+  if(r.error)return r.error;
+  acctUseLogin(lb,r);
+  await acctPull();
+  const ab=allTimeBest();if(ab>0)lbPostPlayer(ab,stats.bestWeek||1,'').catch(()=>{});
+  return null;
+}
+async function acctLogout(){
+  const lb=await lbInit();
+  saveNow(true);
+  if(lb&&acct)lb.rpc('routes_logout',{p_id:lb.uid,p_token:lb.secret}).catch(()=>{});
+  acct=null;cloudDoc=null;statsDoc=null;
+  try{localStorage.removeItem('routes-acct');}catch(e){}
+  newIdentity();lbPromise=null;
 }
 const allTimeBest=()=>Math.max(best||0,...Object.values(stats.cityBest||{}).map(Number).filter(Number.isFinite),0);
 const lbWeek=w=>Math.max(1,Math.min(10000,w|0));
@@ -1221,6 +1294,49 @@ function showHelp(){
   $('back').onclick=()=>showStart();
 }
 const prevDay=()=>{const y=new Date();y.setDate(y.getDate()-1);return y.getFullYear()+'-'+String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');};
+function showAccount(mode,back){
+  back=back||showStart;startView='acct';
+  if(acct){
+    const ago=acctSyncedAt?Math.round((Date.now()-acctSyncedAt)/60000):-1;
+    openModal('<div class="kicker">Account</div><div class="avatar" style="background:'+PAL[(playerName.charCodeAt(0)||0)%5].c+'">'+esc((playerName||acct.username)[0].toUpperCase())+'</div>'+
+      '<h2>'+esc(playerName||acct.username)+'</h2><div class="sub">@'+esc(acct.username)+'</div>'+
+      '<div class="synced">'+ic('cloud')+(ago<0?'Progress saves to your account':ago<1?'Synced just now':'Synced '+ago+' min ago')+'</div>'+
+      '<div class="note" style="margin-top:12px">Log in with the same username and password on another phone to keep playing there.</div>'+
+      '<button class="ghost" id="acName" style="margin-top:16px">'+ic('edit')+'Change name</button>'+
+      '<button class="ghost" id="acOut">'+ic('logout')+'Log out</button>'+
+      '<button class="primary" id="acBack">Done</button>');
+    $('acName').onclick=()=>{audio();showName(()=>showAccount(null,back));};
+    $('acOut').onclick=async()=>{audio();await acctLogout();toast('Logged out');back();};
+    $('acBack').onclick=()=>{audio();back();};
+    return;
+  }
+  mode=mode==='login'?'login':'signup';
+  const su=mode==='signup';
+  openModal('<div class="kicker">Account</div><h2>'+(su?'Save your progress':'Welcome back')+'</h2>'+
+    '<div class="sub">'+(su?'Keep your level, cities and best scores on every phone.':'Log in to pick up where you left off.')+'</div>'+
+    '<div class="lb-tabs" style="margin-top:14px"><button id="acSu" class="'+(su?'on':'')+'">Create account</button><button id="acLi" class="'+(su?'':'on')+'">Log in</button></div>'+
+    '<input class="name-in" id="acU" maxlength="16" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Username" value="'+(su?esc((playerName||'').replace(/[^A-Za-z0-9_.-]/g,'')):'')+'">'+
+    '<input class="name-in" id="acP" type="password" maxlength="72" autocomplete="'+(su?'new-password':'current-password')+'" enterkeyhint="go" placeholder="Password" style="margin-top:10px">'+
+    '<div class="err" id="acErr">'+(su?'':'')+'</div>'+
+    '<button class="primary" id="acGo">'+(su?'Create account':'Log in')+'</button>'+
+    (su?'<div class="note">There&rsquo;s no email, so pick a password you&rsquo;ll remember.</div>':'')+
+    '<button class="link" id="acBack">'+(playerName?'Back':'Not now')+'</button>');
+  $('acSu').onclick=()=>{if(!su){audio();showAccount('signup',back);}};
+  $('acLi').onclick=()=>{if(su){audio();showAccount('login',back);}};
+  const go=async()=>{
+    const u=$('acU').value.trim(),p=$('acP').value,err=$('acErr');
+    if(!/^[A-Za-z0-9_.-]{3,16}$/.test(u)){err.textContent='Usernames are 3–16 letters, numbers, _ . or -';anim('acU','shake');return;}
+    if(p.length<6){err.textContent='Passwords need at least 6 characters';anim('acP','shake');return;}
+    const btn=$('acGo');if(btn.disabled)return;btn.disabled=true;btn.textContent=su?'Creating…':'Logging in…';err.textContent='';
+    const e=su?await acctSignup(u,p):await acctLogin(u,p);
+    if(e){if(!$('acGo'))return;$('acGo').disabled=false;$('acGo').textContent=su?'Create account':'Log in';$('acErr').textContent=e;anim('acErr','shake');return;}
+    toast(su?'Account created · progress saved':'Welcome back, '+playerName+'!');
+    if(onStart||!S||S.over)showStart();else back();
+  };
+  $('acGo').onclick=go;$('acP').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};
+  $('acU').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();$('acP').focus();}};
+  $('acBack').onclick=()=>{audio();(playerName?back:showName)();};
+}
 function showName(next){
   const first=!playerName;startView='name';if(first)onStart=true;
   next=next||showStart;
@@ -1229,10 +1345,11 @@ function showName(next){
     '<input class="name-in" id="nmIn" maxlength="16" autocomplete="off" autocapitalize="words" enterkeyhint="go" placeholder="Your name" value="'+esc(playerName)+'">'+
     '<div class="note">Friends see this on the leaderboard</div>'+
     '<button class="primary" id="nmGo">'+(first?'Let&rsquo;s go':'Save')+'</button>'+
-    (first?'':'<button class="link" id="nmBack">Back</button>'));
+    (first?(lbOn()?'<button class="link" id="nmLogin">'+ic('cloud')+'Have an account? Log in</button>':''):'<button class="link" id="nmBack">Back</button>'));
   const inp=$('nmIn'),go=()=>{if(saveName(inp.value)){audio();if(first)toast('Hi, '+playerName+'!');next();}else anim('nmIn','shake');};
   $('nmGo').onclick=go;inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();go();}};
   if(!first)$('nmBack').onclick=()=>next();
+  else if($('nmLogin'))$('nmLogin').onclick=()=>{audio();showAccount('login',showStart);};
   let fine=false;try{fine=matchMedia('(pointer:fine)').matches;}catch(e){}
   if(!first||fine)later(()=>{try{inp.focus();}catch(e){}},450);
 }
@@ -1241,7 +1358,7 @@ function showStart(){
   startView='home';
   const tk=todayKey(),dc=dailyCity(tk),db=stats.daily[tk]||0;
   const streak=stats.streak>0&&stats.lastDaily>=prevDay()?stats.streak:0;
-  openModal('<button class="hello" id="hello"><i style="background:'+PAL[(playerName.charCodeAt(0)||0)%5].c+'">'+esc(playerName[0].toUpperCase())+'</i>Hi, '+esc(playerName)+ic('edit')+'</button>'+
+  openModal('<button class="hello" id="hello"><i style="background:'+PAL[(playerName.charCodeAt(0)||0)%5].c+'">'+esc(playerName[0].toUpperCase())+'</i>Hi, '+esc(playerName)+ic(acct?'cloud':'edit')+'</button>'+
     '<div class="logo">'+PAL.slice(0,5).map((p,i)=>'<i style="background:'+p.c+';animation-delay:'+(i*.12)+'s"></i>').join('')+'</div>'+
     '<h1>Routes</h1><div class="sub">Keep the city moving.</div>'+
     (challenge?'<div class="chal"><b>'+ic('flag')+'A friend scored '+challenge.score+' trips</b><span>on the '+dailyCity(challenge.key).name+' daily map · '+prettyDay(challenge.key)+(stats.daily[challenge.key]?' · your best '+stats.daily[challenge.key]:'')+'</span><button class="primary" id="chal">Accept challenge</button></div>':'')+
@@ -1251,6 +1368,7 @@ function showStart(){
     '<button class="ghost" id="daily">'+ic('cal')+'Daily map <em>'+prettyDay(tk)+(db?' · best '+db:'')+'</em>'+(db?'':'<span class="dot"></span>')+'</button>'+
     '<div class="row2"><button class="ghost" id="lbBtn">'+ic('trophy')+'Leaderboard</button><button class="ghost" id="stats">'+ic('chart')+'Stats</button></div>'+
     '<button class="link" id="help">'+ic('help')+'How to play</button>'+
+    (lbOn()&&!acct?'<button class="link acct-cta" id="acct">'+ic('cloud')+'Log in to save across devices</button>':'')+
     (best||streak?'<div class="best">'+[best?'Best '+(best|0):'',streak?'<span style="display:inline-flex;align-items:center;gap:4px">'+ic('flame')+streak+'-day streak</span>':''].filter(Boolean).join(' · ')+'</div>':''));
   onStart=true;
   if(pendingSave)$('cont').onclick=()=>{audio();onStart=false;const o=pendingSave;pendingSave=null;try{loadGame(o);}catch(e){newGame(true);}closeModal();toast('Welcome back');};
@@ -1259,7 +1377,8 @@ function showStart(){
   $('daily').onclick=()=>{audio();onStart=false;newGame(true,{daily:tk});closeModal();toast('Daily map: '+dc.name);};
   $('stats').onclick=()=>{audio();showStats();};
   $('help').onclick=()=>{audio();showHelp();};
-  $('hello').onclick=()=>{audio();showName(showStart);};
+  $('hello').onclick=()=>{audio();lbOn()?showAccount(null,showStart):showName(showStart);};
+  if($('acct'))$('acct').onclick=()=>{audio();showAccount('signup',showStart);};
   $('lbBtn').onclick=()=>{audio();showLeaderboard(tk&&stats.daily[tk]?'daily':'all');};
   if(onWeb)lbInit();
 }
@@ -1905,6 +2024,7 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 resize();newGame(false);pendingSave=readLocal();showStart();requestAnimationFrame(loop);
+if(acct&&lbOn())acctPull().then(ok=>{if(ok&&onStart&&startView==='home')showStart();});
 window.__routes={showShop:k=>showShop(k),SHOP,showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),shareText:()=>shareText(),levelOf,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
 })();
 </script>

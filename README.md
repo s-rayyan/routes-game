@@ -7,6 +7,7 @@ A calm city-traffic puzzle for your phone, inspired by Mini Motorways. Draw road
 - Five cities to unlock, a daily map that is the same for everyone, and an endless mode that keeps growing.
 - Motorways, bridges that bend and cross, roundabouts, traffic lights, diagonal driveways.
 - Challenge links: after a daily map, tap **Challenge friends**. They play the exact same map with your score to beat.
+- Make an account (username + password) to keep your progress on every phone.
 - Pick your name when you first open it, then compete on global leaderboards (all-time and today's daily map). Levels, undo, pause-and-build.
 - A shop: trade road tiles for roundabouts, traffic lights, motorways and bridges.
 
@@ -23,6 +24,8 @@ It's already set up on the `routes` project (`vyyckdylaujxcbwxxijg`). To move it
 3. In `index.html`, set `SB_URL` and `SB_KEY` to those two values and push.
 
 Without the keys, the game works normally and the leaderboard says it isn't switched on yet.
+
+Accounts are username + password, checked inside the database (passwords are bcrypt-hashed, five wrong tries locks the account for a minute and longer after that). There's no email, so there's no password reset. Logging in on a phone that already has guest scores folds them into the account. Saves sync to the account, and stats are merged so an older phone can never lower them.
 
 The SQL keeps the tables locked. The browser can only call three functions: post your score, post your daily score, and read the board. Scores only ever go up. Names are limited to 2–16 letters, numbers, spaces and `- _ .`. Daily scores are only accepted for today's map. These checks were tested against a real Postgres database.
 
