@@ -1147,7 +1147,7 @@ function showShop(focus){
   const wasPaused=!!S.paused;S.paused=true;setSpeedUI();
   const draw=()=>{
     openModal('<div class="kicker">Shop</div><h2>Trade road tiles</h2><div class="wallet">'+ICON.road+' '+S.pieces+' road tiles</div><div class="shop">'+
-      SHOP.map((it,i)=>'<div class="item" style="animation-delay:'+(i*.05)+'s'+(focus===it.k?';box-shadow:0 0 0 2.5px var(--ink)':'')+'"><span class="ico">'+ICON[it.k]+'</span><div><b>'+it.name+' <span style="display:inline;font-size:12px">· you have '+shopHas(it.k)+'</span></b><span>'+it.desc+'</span></div>'+
+      SHOP.map((it,i)=>'<div class="item" style="animation-delay:'+(i*.05)+'s'+(focus===it.k?';box-shadow:0 0 0 2.5px var(--ink)':'')+'"><span class="ico">'+ICON[it.k]+'</span><div><b>'+it.name+(shopHas(it.k)?' <span style="display:inline;font-size:13px">×'+shopHas(it.k)+'</span>':'')+'</b><span>'+it.desc+'</span></div>'+
         '<button data-k="'+it.k+'"'+(S.pieces<it.cost?' disabled':'')+'>'+it.cost+' tiles</button></div>').join('')+
       '</div><button class="primary" id="shopDone">Done</button>');
     $('modal').querySelectorAll('.item button').forEach(b=>b.onclick=()=>buy(b.dataset.k));
