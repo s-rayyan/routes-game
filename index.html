@@ -230,7 +230,7 @@ const CITIES=[
    pal:{land:'#f0f2ea',out:'#e1e6dc',shore:'#d2e5ec',water:'#a2c6e2',road:'#5c6470',tree:'#cfe0c6',tree2:'#bcd3b1',pa:'rgba(208,222,206,.4)',pb:'rgba(246,248,242,.5)',night:'#6370ad'}},
   {id:'dunes',name:'Dune Town',desc:'Warm sand around one oasis',gen:'oasis',bridges:1,need:['lakes',80],
    pal:{land:'#f6e6c8',out:'#ecd6af',shore:'#d6eade',water:'#86c7cf',road:'#6b645c',tree:'#e3d9a8',tree2:'#d3c88f',pa:'rgba(238,214,170,.45)',pb:'rgba(251,240,218,.5)',night:'#7d72a3'}},
-  {id:'hood',name:'Neighborhood',desc:'Homes of every colour around one busy downtown',gen:'mixed',town:true,bridges:2,
+  {id:'hood',name:'Builder mode',desc:'Unlimited roads, no game over. Shops downtown, homes all around',gen:'mixed',town:true,limitless:true,bridges:2,
    pal:{land:'#eef3e6',out:'#dde6d3',shore:'#d2e7e8',water:'#a3cfe0',road:'#5b636c',tree:'#c9e0b8',tree2:'#b5d3a1',pa:'rgba(220,232,206,.35)',pb:'rgba(246,249,240,.45)',night:'#6773ab'}}
 ];
 const DAILY_CITIES=CITIES.filter(c=>!c.town);   // the daily map keeps the same rotation of cities
@@ -396,7 +396,7 @@ function newGame(fresh,opts){
     houseT:8,destT:8,over:false,overD:null,paused:false,reward:false,speed:1,
     B:{x0,y0,x1:x0+w0,y1:y0+h0}};
   S.prevBest=daily?(stats.daily[daily]||0):(stats.cityBest[city.id]||0);S.target=opts.target||0;S.xp0=stats.trips;
-  S.town=!!city.town;
+  S.town=!!city.town;S.limitless=!!city.limitless;
   S.DB={...S.B};
   genWater(city.gen);genTrees();
   spawnDest(0);spawnHouse(0);spawnHouse(0);
@@ -627,6 +627,7 @@ function erase(c){
 // why a house can't face side j ('' = it can). Two houses may share the road tile in front of them.
 function turnBlock(h,j){
   if(!NB8[h.i].includes(j)||!inB(j))return 'edge';
+  if(h.kind==='d'&&isDiag(h.i,j))return 'diag';   // shops face straight out
   if(S.water[j])return 'water';
   if(S.bld[j])return 'building';
   if(isDiag(h.i,j)){const c1=Y(h.i)*COLS+X(j),c2=Y(j)*COLS+X(h.i);
@@ -637,28 +638,29 @@ function turnBlock(h,j){
 let lastTurnMsg=-9;
 function refuseTurn(h,why){
   h.noT=RT;sfx.deny();
-  const msg={edge:'That side is the edge of the map',water:'A driveway can’t face the water',building:'Another building is in the way',road:'A road already cuts across that corner',none:'This house has no free side to turn to'}[why];
+  const msg={edge:'That side is the edge of the map',water:'A driveway can’t face the water',building:'Another building is in the way',road:'A road already cuts across that corner',diag:'',none:'There’s no free side to turn to'}[why];
   if(msg&&RT-lastTurnMsg>2.5){lastTurnMsg=RT;toast(msg);}
 }
 const RING=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];   // clockwise from east
 const ringCell=(i,k)=>{const [dx,dy]=RING[((k%8)+8)%8],x=X(i)+dx,y=Y(i)+dy;return x<0||y<0||x>=COLS||y>=ROWS?-1:y*COLS+x;};
 function tapTurn(h){
   let k0=RING.findIndex((_,k)=>ringCell(h.i,k)===h.door);if(k0<0)k0=0;
-  for(let k=1;k<8;k++){const j=ringCell(h.i,k0+k);if(j>=0&&!turnBlock(h,j)){turnHouse(h,j);return true;}}
+  const st=h.kind==='d'?2:1;
+  for(let k=st;k<8;k+=st){const j=ringCell(h.i,k0+k);if(j>=0&&!turnBlock(h,j)){turnHouse(h,j);return true;}}
   refuseTurn(h,'none');return false;
 }
 function turnHouse(h,j){
-  if(!h||h.kind!=='h'||j===h.door||turnBlock(h,j))return false;
+  if(!h||j===h.door||turnBlock(h,j))return false;
   const old=h.door;
   if(old>=0)S.dwGhost.push({i:h.i,door:old,t:RT});
   for(const c of S.cars){const a=c.path[c.i],b=c.path[c.i+1];if((a===h.i&&b===old)||(a===old&&b===h.i))kill(c);}
   S.cars=S.cars.filter(c=>!c.dead);
-  h.door=j;h.doorBorn=RT;h.turnT=RT;changed=true;edits++;
+  h.door=j;h.doorBorn=RT;h.turnT=RT;if(h.kind==='d')h.rip.push(RT);changed=true;edits++;
   tone(LOWP[ri(2,5)]*2,.25,.03,0,'triangle');try{navigator.vibrate&&navigator.vibrate(8);}catch(e){}
   return true;
 }
 /* ---------- moving buildings: hold one, drag it, let go ---------- */
-let moving=null;
+let moving=null;const LIFT=.18;   // how far a picked-up building floats above the finger
 const doorFree=(b,j)=>j>=0&&inB(j)&&!S.water[j]&&(!S.bld[j]||S.bld[j]===b)&&![...S.houses,...S.dests].some(o=>o!==b&&o.door===j);
 function moveDoorFor(b,to){
   const opts=NB4[to].filter(j=>j!==b.i||true).filter(j=>doorFree(b,j)&&j!==to);
@@ -771,11 +773,11 @@ function reroute(){
   }
   S.cars=S.cars.filter(c=>!c.dead);
 }
-function after(){if(changed){changed=false;reroute();}}
+function after(){topUp();if(changed){changed=false;reroute();}}
 function snap(){
   const adj=[];for(let i=0;i<N;i++)for(const j of S.adj[i])if(j>i)adj.push(i,j);
   return {road:S.road.slice(),adj,span:S.span.slice(),spans:S.spans.map(p=>({...p})),rb:S.rb.slice(),tl:S.tl.slice(),ramp:S.ramp.slice(),
-    mw:S.mw.map(m=>[m.a,m.b]),doors:new Map(S.houses.map(h=>[h,h.door])),
+    mw:S.mw.map(m=>[m.a,m.b]),doors:new Map([...S.houses,...S.dests].map(h=>[h,h.door])),
     pieces:S.pieces,bridges:S.bridges,rounds:S.rounds,mways:S.mways,lights:S.lights};
 }
 function beginEdit(){if(!S||S.over)return;preSnap=snap();preEdits=edits;}
@@ -794,7 +796,7 @@ function undo(){
   for(let k=0;k+1<sn.adj.length;k+=2){const i=sn.adj[k],j=sn.adj[k+1];if(S.road[i]&&S.road[j]){S.adj[i].add(j);S.adj[j].add(i);}}
   for(const a of S.mwAdj)a.clear();S.mw=[];
   for(const [a,b] of sn.mw)if(S.road[a]&&S.road[b]){S.mw.push({a,b,born:-99});S.mwAdj[a].add(b);S.mwAdj[b].add(a);}
-  for(const h of S.houses)if(sn.doors.has(h)){const d=sn.doors.get(h);if(d!==h.door&&!turnBlock(h,d)){S.dwGhost.push({i:h.i,door:h.door,t:RT});h.door=d;h.doorBorn=RT;}}
+  for(const h of [...S.houses,...S.dests])if(sn.doors.has(h)){const d=sn.doors.get(h);if(d!==h.door&&!turnBlock(h,d)){S.dwGhost.push({i:h.i,door:h.door,t:RT});h.door=d;h.doorBorn=RT;}}
   S.pieces=sn.pieces;S.bridges=sn.bridges;S.rounds=sn.rounds;S.mways=sn.mways;S.lights=sn.lights;
   changed=true;after();syncUndo();tone(LOWP[3],.25,.03,0,'triangle');anim('bUndo','bump');
 }
@@ -823,7 +825,7 @@ const TLCYCLE=2.6;
 const lightPhase=()=>Math.floor(S.t/TLCYCLE)%2;   // 0: east-west green, 1: north-south green
 function greenFor(from,cell){const horiz=Y(from)===Y(cell)||(X(from)!==X(cell)&&Math.abs(X(from)-X(cell))>=Math.abs(Y(from)-Y(cell)));return (horiz?0:1)===lightPhase();}
 function step(dt){
-  S.t+=dt;if(!S.over)stats.time+=dt;
+  topUp();S.t+=dt;if(!S.over)stats.time+=dt;
   edgeCars=new Map();occ.fill(0);
   for(const c of S.cars){
     const a=c.path[c.i],b=c.path[c.i+1];c.k=K(a,b);c.len=elen(a,b);
@@ -888,7 +890,7 @@ function step(dt){
   }
   for(const d of S.dests){
     if(d.pending>=OVERFLOW)d.stress+=dt/35;else d.stress=Math.max(0,d.stress-dt/18);
-    if(d.stress>=1){d.stress=1;endGame(d);return;}
+    if(d.stress>=1){if(S.limitless)d.stress=.999;else{d.stress=1;endGame(d);return;}}   // builder mode never ends
   }
   S.houseT-=dt;
   if(S.houseT<=0){
@@ -911,7 +913,15 @@ function step(dt){
       else if(hc>dc*4&&dc<(COLS>WORLD?5:3)){if(spawnDest(k))toast('A new '+NAMES[k]+' building opened');done=true;}
     }
   }
-  if(S.weekT>=WEEK){S.weekT=WEEK;S.reward=true;endStroke();sfx.week();later(showReward,350);}
+  if(S.weekT>=WEEK){
+    if(S.limitless){   // builder mode: nothing to choose, just grow
+      S.week++;S.weekT=0;sfx.week();
+      let grew=expand();if(!grew&&growWorld())grew=expand();
+      let msg=grew?'The map is expanding':'';
+      if(S.colors<PAL.length&&(S.colors<5||S.week%2===0)){const m=unlockColor();if(m)msg=m;}
+      if(msg)toast(msg);syncHud();lastSaveT=-1;saveNow(true);
+    }else{S.weekT=WEEK;S.reward=true;endStroke();sfx.week();later(showReward,350);}
+  }
 }
 function recordFrame(force){
   if(!S)return;
@@ -920,6 +930,8 @@ function recordFrame(force){
   S.frames.push({t:S.t,w:S.week,s:S.score,r,e,m:S.mw.map(m=>[m.a,m.b]),b:[...S.dests.map(d=>[d.i,d.color,1]),...S.houses.map(h=>[h.i,h.color,0])],B:{...S.B}});
   if(S.frames.length>90)S.frames=S.frames.filter((f,i,a)=>i%2===0||i===a.length-1);
 }
+const LIMITLESS=999;
+function topUp(){if(S&&S.limitless){S.pieces=S.bridges=S.rounds=S.lights=S.mways=LIMITLESS;}}
 function endGame(d){
   S.over=true;S.overD=d;endStroke();camMode='over';sfx.over();
   if(S.score>best){best=S.score;}
@@ -972,7 +984,7 @@ function loadGame(o){
     houses:[],dests:[],cars:[],fades:[],ghosts:[],dwGhost:[],trees:[],
     houseT:num(o.houseT)||6,destT:num(o.destT)||6,over:false,overD:null,paused:false,reward:false,speed:o.speed===2?2:1,wantColor:!!o.wantColor,target:Math.max(0,int(o.target)),prevBest:Math.max(0,int(o.prevBest)),bestShown:!!o.bestShown,beaten:!!o.beaten,xp0:stats.trips,
     B:{x0:clamp(int(o.B&&o.B.x0),0,COLS-1),y0:clamp(int(o.B&&o.B.y0),0,o.rows-1),x1:clamp(int(o.B&&o.B.x1),1,COLS),y1:clamp(int(o.B&&o.B.y1),1,o.rows)}};
-  S.town=!!city.town;
+  S.town=!!city.town;S.limitless=!!city.limitless;
   S.DB={...S.B};
   const a=Array.isArray(o.adj)?o.adj:[];
   for(let k=0;k+1<a.length;k+=2){const i=cell(a[k]),j=cell(a[k+1]);if(i>=0&&j>=0&&S.road[i]&&S.road[j]&&NB8[i].includes(j)){S.adj[i].add(j);S.adj[j].add(i);}}
@@ -1305,6 +1317,7 @@ const SHOP=[
   {k:'bridge',name:'Bridge',desc:'Cross water with a road',cost:8}];
 const shopHas=k=>k==='round'?S.rounds:k==='light'?S.lights:k==='mway'?S.mways:S.bridges;
 function showShop(focus){
+  if(S&&S.limitless){toast('Everything is unlimited in Builder mode');return;}
   if(!S||S.over||S.reward)return;
   const wasPaused=!!S.paused;S.paused=true;setSpeedUI();
   const draw=()=>{
@@ -1382,7 +1395,7 @@ function showStats(){
 function showHelp(){
   startView='help';
   openModal('<div class="kicker">How to play</div><ul class="tips"><li><i>'+ICON.road+'</i>Drag from a house&rsquo;s driveway to the building of the same colour.</li>'+
-    '<li><i>'+ICON.road+'</i>Tap a house, or drag out of it, to point its driveway any way, even diagonally.</li>'+
+    '<li><i>'+ICON.road+'</i>Tap a house or shop, or drag out of it, to turn its driveway. Houses can even face diagonally.</li>'+
     '<li><i>'+ICON.road+'</i>Hold a house or building, then drag it somewhere else to move it.</li>'+
     '<li><i>'+ICON.bridge+'</i>Drag across water to build a bridge.</li>'+
     '<li><i>'+ICON.mway+'</i>Earn motorways, lights and roundabouts weekly, or buy them with road tiles in the shop.</li>'+
@@ -1652,11 +1665,11 @@ function stroke(){
     if(sx&&sy&&((S.bld[c]&&S.bld[c].door!==lastCur)||(S.bld[lastCur]&&S.bld[lastCur].door!==c)||!crossOK(lastCur,c)))c=ax>ay?lastCur+sx:lastCur+sy*COLS;
     const fd=j=>Math.hypot(wx-(X(j)+.5),wy-(Y(j)+.5));
     if(S.bld[lastCur]){
-      if(prevCur<0&&S.bld[lastCur].kind==='h'){
+      if(prevCur<0){
         const h=S.bld[lastCur];
         if(Math.max(ax,ay)<.72)break;
-        // the drag's direction picks one of the 8 tiles around the house; if that one is blocked, try its neighbours
-        const k=Math.round(Math.atan2(dy,dx)/(Math.PI/4)),cands=[k,k+(Math.atan2(dy,dx)/(Math.PI/4)>k?1:-1),k-(Math.atan2(dy,dx)/(Math.PI/4)>k?1:-1)];
+        // the drag's direction picks one of the 8 tiles around a house (4 sides for a shop); if that one is blocked, try its neighbours
+        const a8=Math.atan2(dy,dx)/(Math.PI/4),k=h.kind==='d'?2*Math.round(a8/2):Math.round(a8),sg=a8>k?1:-1,stp=h.kind==='d'?2:1,cands=[k,k+sg*stp,k-sg*stp];
         let t=-1,why='';
         for(const kk of cands){const j=ringCell(lastCur,kk);if(j<0){why=why||'edge';continue;}if(j===h.door){t=j;break;}const b=turnBlock(h,j);if(!b){t=j;break;}why=why||b;}
         if(t<0)refuseTurn(h,why||'edge');else if(t!==h.door)turnHouse(h,t);
@@ -1710,7 +1723,7 @@ cv.addEventListener('pointermove',e=>{
     camX=pinch.wx-((a.x+b.x)/2-VCX)/Z;camY=pinch.wy-((a.y+b.y)/2-VCY)/Z;clampCam();return;
   }
   if(mwDrag){const [wx,wy]=toWorld(e.clientX,e.clientY);mwDrag.b=cellAtW(wx,wy);mwDrag.ok=mwCheck(mwDrag.a,mwDrag.b);return;}
-  if(moving){const [wx,wy]=toWorld(e.clientX,e.clientY);moving.wx=wx;moving.wy=wy;const c=cellAtW(wx,wy+.35);if(c!==moving.to){moving.to=c;moving.ok=canMove(moving.b,c);if(moving.ok&&c!==moving.b.i)tone(LOWP[ri(3,6)]*2,.08,.012,0,'triangle');}return;}
+  if(moving){const [wx,wy]=toWorld(e.clientX,e.clientY);moving.wx=wx;moving.wy=wy;const c=cellAtW(wx,wy-LIFT);if(c!==moving.to){moving.to=c;moving.ok=canMove(moving.b,c);if(moving.ok&&c!==moving.b.i)tone(LOWP[ri(3,6)]*2,.08,.012,0,'triangle');}return;}
   if(drawing){
     fing.x=e.clientX;fing.y=e.clientY;
     if(!armed){
@@ -1731,7 +1744,7 @@ function up(e){
   if(ptrs.size===0&&drawing&&!armed&&pend){
     // a tap (no drag)
     const c=pend.c;
-    if(tool==='road'&&c>=0&&S.bld[c]&&S.bld[c].kind==='h'){tapTurn(S.bld[c]);after();}
+    if(tool==='road'&&c>=0&&S.bld[c]){tapTurn(S.bld[c]);after();}
     else if(tool==='erase'&&c>=0&&S.road[c]){apply(c);after();}
     else if(tool==='erase'){fing.x=pend.sx;fing.y=pend.sy;armed=true;stroke();}
     else if(pend.zoomed&&(c<0||!inB(c)||(!S.road[c]&&!S.bld[c])))zoomOut();
@@ -1953,7 +1966,7 @@ function drawHouse(h,dt){
 }
 function drawDest(d){
   const s=pop((RT-d.born)/.7);if(s<.01)return;
-  const x=X(d.i)+.5,y=Y(d.i)+.5,P=PAL[d.color],bounce=1+.08*Math.max(0,1-(RT-(d.rip.length?d.rip[d.rip.length-1]:-9))/.3);
+  const nw=d.noT?Math.max(0,1-(RT-d.noT)/.4):0,x=X(d.i)+.5+Math.sin(nw*Math.PI*5)*.06*nw,y=Y(d.i)+.5,P=PAL[d.color],bounce=1+.08*Math.max(0,1-(RT-(d.rip.length?d.rip[d.rip.length-1]:-9))/.3);
   for(const t of d.rip){const k=(RT-t)/.8;ctx.strokeStyle=P.c;ctx.globalAlpha=.4*(1-k);ctx.lineWidth=.05;circ(x,y,.45+.5*easeOut(k));ctx.stroke();}
   ctx.globalAlpha=1;d.rip=d.rip.filter(t=>RT-t<.8);
   const w=.86,r=.17,ss=s*bounce;
@@ -2034,8 +2047,8 @@ function render(dt){
     const b=moving.b,t=moving.to,bx=X(b.i)+.5,by=Y(b.i)+.5,k=easeOut(Math.min(1,(RT-moving.t)/.18));
     if(t>=0&&t!==b.i){ctx.strokeStyle=moving.ok?'rgba(88,167,108,.95)':'rgba(216,87,74,.95)';ctx.lineWidth=.06;ctx.setLineDash([.13,.09]);rr(X(t)+.07,Y(t)+.07,.86,.86,.2);ctx.stroke();ctx.setLineDash([]);}
     ctx.strokeStyle='rgba(60,66,74,.25)';ctx.lineWidth=.04;ctx.setLineDash([.1,.08]);rr(X(b.i)+.12,Y(b.i)+.12,.76,.76,.18);ctx.stroke();ctx.setLineDash([]);
-    const fx=moving.wx,fy=moving.wy-.35*k-.15;
-    ctx.save();ctx.translate(fx,fy);ctx.scale(1+.15*k,1+.15*k);ctx.translate(-bx,-by);
+    const fx=moving.wx,fy=moving.wy-LIFT*k;
+    ctx.save();ctx.translate(fx,fy);ctx.scale(1+.07*k,1+.07*k);ctx.translate(-bx,-by);
     ctx.globalAlpha=moving.ok||t===b.i?1:.6;b.kind==='h'?drawHouse(b,dt):drawDest(b);ctx.globalAlpha=1;ctx.restore();
   }
   drawMotorways();
@@ -2097,7 +2110,7 @@ function syncHud(force){
   const off=+(94.25*(1-S.weekT/WEEK)).toFixed(1);
   if(hud.arc!==off){hud.arc=off;$('arc').style.strokeDashoffset=off;}
   for(const [id,v,t,k] of [['nRoad',S.pieces,'tRoad'],['nBridge',S.bridges,'tBridge'],['nRound',S.rounds,'tRound','round'],['nMway',S.mways,'tMway','mway'],['nLight',S.lights,'tLight','light']]){
-    const r=setText(id,v);if(r===2&&!force)anim(id,'bump');
+    const r=setText(id,S.limitless?'∞':v);if(r===2&&!force&&!S.limitless)anim(id,'bump');
     if(r)$(t).classList.toggle('empty',v<1);
     if(k){
       if(v>0||(k==='round'&&S.rb.some(x=>x))||(k==='mway'&&S.mw.length>0)||(k==='light'&&S.tl.some(x=>x)))S.seen[k]=1;
