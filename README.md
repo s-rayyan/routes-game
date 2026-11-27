@@ -7,6 +7,7 @@ A calm city-traffic puzzle for your phone, inspired by Mini Motorways. Draw road
 - Five cities to unlock, a daily map that is the same for everyone, and an endless mode that keeps growing.
 - Motorways, bridges that bend and cross, roundabouts, traffic lights, diagonal driveways.
 - Challenge links: after a daily map, tap **Challenge friends**. They play the exact same map with your score to beat.
+- Neighborhood mode: a tidy street grid where houses sit on lots in neat rows, doors on the street, and each colour keeps to its own blocks.
 - Make an account (username + password) to keep your progress on every phone.
 - Pick your name when you first open it, then compete on global leaderboards (all-time and today's daily map). Levels, undo, pause-and-build.
 - A shop: trade road tiles for roundabouts, traffic lights, motorways and bridges.
