@@ -126,7 +126,6 @@ h2{font-size:26px;font-weight:900;margin:6px 0 2px}
 .lvl div{flex:1}.lvl b{font-size:14px;font-weight:900;display:flex;justify-content:space-between}.lvl b span{color:var(--soft);font-weight:800;font-size:13px}
 .bar{height:8px;border-radius:4px;background:#efeae0;overflow:hidden;margin-top:5px}.bar u{display:block;height:100%;background:linear-gradient(90deg,#5dbb8f,#5c9fd6);border-radius:4px;transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
 .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px}.chips>span{display:inline-flex;align-items:center;gap:6px;background:var(--card);box-shadow:var(--sh);border-radius:999px;padding:7px 12px;font-size:13px;font-weight:800;animation:rise .5s cubic-bezier(.2,1.35,.4,1) both}
-.sharebox{word-break:break-all;width:100%;margin-top:12px;border:0;border-radius:18px;background:var(--card);box-shadow:var(--sh);padding:10px 12px;font:600 12.5px/1.45 ui-monospace,Menlo,monospace;color:var(--ink);resize:none;user-select:text;-webkit-user-select:text}
 #targetTag{white-space:nowrap;position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 66px);transform:translate(-50%,-6px);background:#fff4dc;color:#8a5a2a;font-weight:900;font-size:12.5px;padding:6px 14px;border-radius:999px;box-shadow:var(--sh);opacity:0;transition:opacity .3s,transform .4s cubic-bezier(.2,1.4,.4,1),background .4s;pointer-events:none}
 #targetTag.show{opacity:1;transform:translate(-50%,0)}#targetTag.won{background:#dff3e8;color:#2f7d58}
 .lb-tabs{display:flex;gap:6px;background:#e9e3d6;border-radius:999px;padding:4px;margin-top:12px}
@@ -1411,26 +1410,14 @@ function showOver(){
     levelHtml(stats.trips-(S.xp0||stats.trips))+
     '<canvas id="replay" width="'+w*2+'" height="'+h*2+'" style="width:'+w+'px;height:'+h+'px"></canvas><button class="link" id="rep">'+ic('replay')+'Watch your city grow</button>'+
     '<div id="lbSlot"></div>'+
-    '<button class="primary" id="share" style="margin-top:10px;background:#e9786b;box-shadow:0 6px 16px rgba(233,120,107,.3)">'+ic(S.daily?'flag':'share')+(S.daily?'Challenge friends':'Share score')+'</button>'+
-    '<div class="row2"><button class="ghost" id="again">'+ic('again')+'Again</button><button class="ghost" id="lbOver">'+ic('trophy')+'Board</button></div><button class="link" id="tomenu">'+ic('home')+'Menu</button>');
+    '<button class="primary" id="again" style="margin-top:10px">'+ic('again')+'Play again</button>'+
+    '<div class="row2"><button class="ghost" id="lbOver">'+ic('trophy')+'Board</button><button class="ghost" id="tomenu">'+ic('home')+'Menu</button></div>');
   $('lbOver').onclick=()=>{audio();showLeaderboard(S.daily?'daily':'all',showOver);};
   lbAfterGame();
-  $('share').onclick=()=>shareSheet();
   $('again').onclick=()=>{audio();closeModal();newGame(true,{city:S.city,daily:S.daily});};
   $('tomenu').onclick=()=>{audio();showStart();};
   $('rep').onclick=()=>playReplay();
   playReplay();
-}
-function shareSheet(){
-  const txt=shareText(),back=()=>showOver();
-  openModal('<div class="kicker">'+(S.daily?'Challenge friends':'Share')+'</div><h2>'+(S.daily?'Send this to your friends':'Show off your city')+'</h2>'+
-    '<div class="sub">'+(S.daily?'They&rsquo;ll play the exact same map with your score to beat.':'Paste it in your group chat.')+'</div>'+
-    '<textarea class="sharebox" id="stxt" rows="7" readonly></textarea><button class="primary" id="copy">Copy</button><button class="link" id="sback">Back</button>');
-  $('stxt').value=txt;
-  $('copy').onclick=async()=>{let ok=false;try{await navigator.clipboard.writeText(txt);ok=true;}catch(e){}
-    if(!ok){const t=$('stxt');t.focus();t.select();try{ok=document.execCommand('copy');}catch(e){}}
-    toast(ok?'Copied! Paste it to your friends':'Press and hold the text to copy it');if(ok)confetti(W/2,H*.4,30);};
-  $('sback').onclick=back;
 }
 let repRAF=0;
 function playReplay(){
