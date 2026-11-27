@@ -230,7 +230,7 @@ const CITIES=[
    pal:{land:'#f0f2ea',out:'#e1e6dc',shore:'#d2e5ec',water:'#a2c6e2',road:'#5c6470',tree:'#cfe0c6',tree2:'#bcd3b1',pa:'rgba(208,222,206,.4)',pb:'rgba(246,248,242,.5)',night:'#6370ad'}},
   {id:'dunes',name:'Dune Town',desc:'Warm sand around one oasis',gen:'oasis',bridges:1,need:['lakes',80],
    pal:{land:'#f6e6c8',out:'#ecd6af',shore:'#d6eade',water:'#86c7cf',road:'#6b645c',tree:'#e3d9a8',tree2:'#d3c88f',pa:'rgba(238,214,170,.45)',pb:'rgba(251,240,218,.5)',night:'#7d72a3'}},
-  {id:'hood',name:'Neighborhood',desc:'Neat rows of houses, each colour on its own streets',gen:'none',grid:true,bridges:0,
+  {id:'hood',name:'Neighborhood',desc:'Mixed streets of homes around a busy downtown',gen:'none',grid:true,bridges:0,
    pal:{land:'#eef3e6',out:'#dde6d3',shore:'#d2e7e8',water:'#a3cfe0',road:'#5b636c',tree:'#c9e0b8',tree2:'#b5d3a1',pa:'rgba(220,232,206,.35)',pb:'rgba(246,249,240,.45)',night:'#6773ab'}}
 ];
 const DAILY_CITIES=CITIES.filter(c=>!c.grid);   // the daily map keeps the same rotation of cities
@@ -388,7 +388,7 @@ function newGame(fresh,opts){
   applyPalette(city);
   setupGrid(daily?19:fitRows(WORLD),WORLD);
   if(fresh)clearSave();
-  const w0=Math.min(COLS,6),h0=Math.min(ROWS,Math.round(6*ASPECT)),x0=Math.floor((COLS-w0)/2),y0=Math.floor((ROWS-h0)/2);
+  const w0=Math.min(COLS,city.grid?9:6),h0=Math.min(ROWS,city.grid?10:Math.round(6*ASPECT)),x0=Math.floor((COLS-w0)/2),y0=Math.floor((ROWS-h0)/2);
   S={city:city.id,daily,frames:[],heat:new Float32Array(N),t:0,week:1,weekT:0,score:0,pieces:22,bridges:city.bridges,rounds:1,mways:0,lights:0,colors:1,mw:[],mwAdj:Array.from({length:N},()=>new Set()),ramp:new Uint8Array(N),tl:new Uint8Array(N),tlBorn:new Float32Array(N),seen:{},
     water:new Uint8Array(N),road:new Uint8Array(N),rb:new Uint8Array(N),rbBorn:new Float32Array(N),born:new Float32Array(N),
     span:new Int16Array(N).fill(-1),spans:[],adj:Array.from({length:N},()=>new Set()),bld:new Array(N).fill(null),
@@ -511,32 +511,57 @@ function gridPick(score,level){
   return bi;
 }
 const gdist=(a,b)=>Math.abs(X(a)-X(b))+1.35*Math.abs(Y(a)-Y(b));   // rows fill sideways first
-// Each colour grows as one patch: a lot belongs to the colour whose buildings are closest to it.
-const bOf=c=>[...S.houses,...S.dests].filter(b=>b.color===c);
-const bNot=c=>[...S.houses,...S.dests].filter(b=>b.color!==c);
-const nearest=(c0,list)=>list.length?Math.min(...list.map(b=>gdist(c0,b.i))):99;
+// Shops (the coloured buildings) cluster into a downtown along a few streets.
+// Homes of every colour mix together everywhere else.
+// A "segment" is one stretch of street: the 3 lots on each side of it (6 lots).
+const fdiv=(a,m)=>Math.floor(a/m);
+const segOf=i=>fdiv(X(i)-S.gox,4)*1000+fdiv(Y(i)-S.goy,3);
+const shopSegs=()=>new Set(S.dests.map(d=>segOf(d.i)));
+const segNear=(k,set)=>{const bx=Math.round(k/1000),bd=k-bx*1000;for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]])if(set.has((bx+dx)*1000+bd+dy))return true;return false;};
+// The stretch of street downtown grows into next: kept free of homes.
+function nextShopSeg(){
+  const segs=shopSegs();if(!segs.size)return null;
+  const cx=S.dests.reduce((a,d)=>a+X(d.i),0)/S.dests.length,cy=S.dests.reduce((a,d)=>a+Y(d.i),0)/S.dests.length;
+  const B=S.B;let best=null,bs=1e9;
+  for(const k of segs){const bx=Math.round(k/1000),bd=k-bx*1000;
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const n=(bx+dx)*1000+bd+dy;if(segs.has(n))continue;
+      let lots=0,homes=0,sx=0,sy=0;
+      for(let y=B.y0+1;y<B.y1-1;y++)for(let x=B.x0+1;x<B.x1-1;x++){const i=y*COLS+x;if(lotDoor(i)<0||segOf(i)!==n)continue;if(S.bld[i])homes++;else if(free(i)){lots++;sx+=x;sy+=y;}}
+      if(lots<2)continue;
+      const v=homes*3+Math.abs(sx/lots-cx)+1.2*Math.abs(sy/lots-cy)+(dy?1.5:0);   // prefer carrying on along the same street
+      if(v<bs){bs=v;best=n;}}}
+  return best;
+}
 function gridDest(color){
   const B=S.B,c=Math.floor((B.x0+B.x1)/2)+Math.floor((B.y0+B.y1)/2)*COLS;
-  const mine=bOf(color),rest=bNot(color),dsep=c0=>S.dests.length?Math.min(...S.dests.map(d=>md(c0,d.i))):99;
-  if(mine.length){   // another building for a colour that already has streets: inside its own patch
-    for(const lv of [0,1]){const i=gridPick(c0=>{const n=nearest(c0,mine),o=nearest(c0,rest);return n<=3&&o>n+1&&dsep(c0)>=3?n:null;},lv);if(i>=0)return i;}
-  }
-  // a new patch: the open spot with the most room around it, nearer the middle when there's a choice
-  for(const room of [5,4,3,2])for(const lv of [0,1]){
-    const i=gridPick(c0=>{const o=nearest(c0,rest.concat(mine));return o<room?null:md(c0,c)*.5-Math.min(o,7)*.4;},lv);
-    if(i>=0)return i;
-  }
+  if(!S.dests.length){for(const lv of [0,1]){const i=gridPick(c0=>md(c0,c),lv);if(i>=0)return i;}return -1;}
+  const segs=shopSegs(),cx=S.dests.reduce((a,d)=>a+X(d.i),0)/S.dests.length,cy=S.dests.reduce((a,d)=>a+Y(d.i),0)/S.dests.length;
+  const toMid=c0=>Math.abs(X(c0)-cx)+1.2*Math.abs(Y(c0)-cy);
+  const hasHome=k=>S.houses.some(h=>segOf(h.i)===k);
+  const nx=nextShopSeg();
+  const tiers=[
+    c0=>segs.has(segOf(c0))?toMid(c0):null,                                   // same high street
+    c0=>segOf(c0)===nx?toMid(c0):null,                                        // the stretch kept for it
+    c0=>{const k=segOf(c0);return segNear(k,segs)&&!hasHome(k)?toMid(c0):null;}, // the next stretch of street
+    c0=>segNear(segOf(c0),segs)?toMid(c0)+1:null,
+    c0=>toMid(c0)+2];
+  for(const t of tiers)for(const lv of [0,1]){const i=gridPick(t,lv);if(i>=0)return i;}
   return -1;
 }
 function gridHouse(color){
   const own=S.dests.filter(d=>d.color===color);
   if(!own.length)return -1;
-  const mine=bOf(color),rest=bNot(color);
-  const dd=c0=>Math.min(...own.map(d=>gdist(c0,d.i)));
-  const sameRow=c0=>S.houses.some(h=>h.color===color&&Y(h.i)===Y(c0)&&Math.abs(X(h.i)-X(c0))===1)?-1.2:0;   // extend a row of matching houses
-  const score=strict=>c0=>{const n=nearest(c0,mine),o=nearest(c0,rest),d=dd(c0);
-    if(strict&&(o<=n||d>7))return null;return n+.25*d+sameRow(c0)+(strict?0:3);};
-  for(const st of [true,false])for(const lv of [0,1]){const i=gridPick(score(st),lv);if(i>=0)return i;}
+  const segs=shopSegs(),all=[...S.houses,...S.dests],nx=nextShopSeg();
+  const dd=c0=>Math.min(...own.map(d=>md(c0,d.i)));
+  const near=c0=>Math.min(...all.map(b=>md(c0,b.i)));
+  // homes stay out of downtown, keep the town compact, and land in any colour's street
+  const sameNext=c0=>S.houses.some(h=>h.color===color&&md(h.i,c0)===1)?1.2:0;   // mix it up: avoid matching next-door
+  const score=c0=>{const k=segOf(c0);if(segs.has(k)||k===nx)return null;
+    return (segNear(k,segs)?1:0)+.3*near(c0)+.1*dd(c0)+sameNext(c0)+rnd()*2.2;};
+  for(const lv of [0,1]){const i=gridPick(score,lv);if(i>=0)return i;}
+  if(expand())for(const lv of [0,1]){const i=gridPick(score,lv);if(i>=0)return i;}   // out of lots: the map grows a little
+  for(const lv of [0,1]){const i=gridPick(c0=>segs.has(segOf(c0))?null:dd(c0)+rnd(),lv);if(i>=0)return i;}
+  for(const lv of [0,1]){const i=gridPick(c0=>dd(c0)+rnd(),lv);if(i>=0)return i;}   // only downtown left
   return -1;
 }
 function spawnDest(color){
@@ -1972,13 +1997,16 @@ function render(dt){
   if(!S.patches){S.patches=[];for(let i=0;i<N;i++){const h=(Math.imul(i+1,2654435761)>>>0);if(h%6===0)S.patches.push([X(i)+.5+((h>>>8)%100)/100-.5,Y(i)+.5+((h>>>16)%100)/100-.5,.8+((h>>>24)%60)/100,h%2]);}}
   for(const [px,py,pr,t] of S.patches){ctx.fillStyle=t?PATCHA:PATCHB;circ(px,py,pr);ctx.fill();}
   if(S.grid){   // neighborhood: soft pads show each lot and which way its door faces
-    const B=S.B;ctx.beginPath();
-    for(let y=B.y0+1;y<B.y1-1;y++)for(let x=B.x0+1;x<B.x1-1;x++){
-      const i=y*COLS+x,dr=lotDoor(i);if(dr<0||S.road[i]||S.water[i])continue;
-      rrp(x+.13,y+.13,.74,.74,.17);
-      if(!S.bld[i]){if(dr>i)ctx.rect(x+.42,y+.85,.16,.15);else ctx.rect(x+.42,y,.16,.15);}
+    const B=S.B,segs=shopSegs();
+    for(const shop of [false,true]){
+      ctx.beginPath();
+      for(let y=B.y0+1;y<B.y1-1;y++)for(let x=B.x0+1;x<B.x1-1;x++){
+        const i=y*COLS+x,dr=lotDoor(i);if(dr<0||S.road[i]||S.water[i]||segs.has(segOf(i))!==shop)continue;
+        rrp(x+.13,y+.13,.74,.74,.17);
+        if(!S.bld[i]){if(dr>i)ctx.rect(x+.42,y+.85,.16,.15);else ctx.rect(x+.42,y,.16,.15);}
+      }
+      ctx.fillStyle=shop?'rgba(250,226,196,.62)':'rgba(255,255,255,.38)';ctx.fill();
     }
-    ctx.fillStyle='rgba(255,255,255,.38)';ctx.fill();
   }
   for(const t of S.trees){
     t.a=damp(t.a,!S.road[t.i]&&!S.bld[t.i]?1:0,8,dt);if(t.a<.02)continue;
