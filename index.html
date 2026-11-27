@@ -230,10 +230,10 @@ const CITIES=[
    pal:{land:'#f0f2ea',out:'#e1e6dc',shore:'#d2e5ec',water:'#a2c6e2',road:'#5c6470',tree:'#cfe0c6',tree2:'#bcd3b1',pa:'rgba(208,222,206,.4)',pb:'rgba(246,248,242,.5)',night:'#6370ad'}},
   {id:'dunes',name:'Dune Town',desc:'Warm sand around one oasis',gen:'oasis',bridges:1,need:['lakes',80],
    pal:{land:'#f6e6c8',out:'#ecd6af',shore:'#d6eade',water:'#86c7cf',road:'#6b645c',tree:'#e3d9a8',tree2:'#d3c88f',pa:'rgba(238,214,170,.45)',pb:'rgba(251,240,218,.5)',night:'#7d72a3'}},
-  {id:'hood',name:'Neighborhood',desc:'Mixed streets of homes around a busy downtown',gen:'none',grid:true,bridges:0,
+  {id:'hood',name:'Neighborhood',desc:'Homes of every colour around one busy downtown',gen:'mixed',town:true,bridges:2,
    pal:{land:'#eef3e6',out:'#dde6d3',shore:'#d2e7e8',water:'#a3cfe0',road:'#5b636c',tree:'#c9e0b8',tree2:'#b5d3a1',pa:'rgba(220,232,206,.35)',pb:'rgba(246,249,240,.45)',night:'#6773ab'}}
 ];
-const DAILY_CITIES=CITIES.filter(c=>!c.grid);   // the daily map keeps the same rotation of cities
+const DAILY_CITIES=CITIES.filter(c=>!c.town);   // the daily map keeps the same rotation of cities
 const cityById=id=>CITIES.find(c=>c.id===id)||CITIES[0];
 function applyPalette(c){
   const p=c.pal;LAND=p.land;OUTC=p.out;SHORE=p.shore;WATER=p.water;ROAD=p.road;TREE=p.tree;TREE2=p.tree2;PATCHA=p.pa;PATCHB=p.pb;NIGHT=p.night;
@@ -388,7 +388,7 @@ function newGame(fresh,opts){
   applyPalette(city);
   setupGrid(daily?19:fitRows(WORLD),WORLD);
   if(fresh)clearSave();
-  const w0=Math.min(COLS,city.grid?9:6),h0=Math.min(ROWS,city.grid?10:Math.round(6*ASPECT)),x0=Math.floor((COLS-w0)/2),y0=Math.floor((ROWS-h0)/2);
+  const w0=Math.min(COLS,6),h0=Math.min(ROWS,Math.round(6*ASPECT)),x0=Math.floor((COLS-w0)/2),y0=Math.floor((ROWS-h0)/2);
   S={city:city.id,daily,frames:[],heat:new Float32Array(N),t:0,week:1,weekT:0,score:0,pieces:22,bridges:city.bridges,rounds:1,mways:0,lights:0,colors:1,mw:[],mwAdj:Array.from({length:N},()=>new Set()),ramp:new Uint8Array(N),tl:new Uint8Array(N),tlBorn:new Float32Array(N),seen:{},
     water:new Uint8Array(N),road:new Uint8Array(N),rb:new Uint8Array(N),rbBorn:new Float32Array(N),born:new Float32Array(N),
     span:new Int16Array(N).fill(-1),spans:[],adj:Array.from({length:N},()=>new Set()),bld:new Array(N).fill(null),
@@ -396,7 +396,7 @@ function newGame(fresh,opts){
     houseT:8,destT:8,over:false,overD:null,paused:false,reward:false,speed:1,
     B:{x0,y0,x1:x0+w0,y1:y0+h0}};
   S.prevBest=daily?(stats.daily[daily]||0):(stats.cityBest[city.id]||0);S.target=opts.target||0;S.xp0=stats.trips;
-  S.grid=!!city.grid;S.gox=x0+1;S.goy=Math.floor((y0+y0+h0)/2)-1;   // neighborhood lattice: first street row through the middle
+  S.town=!!city.town;
   S.DB={...S.B};
   genWater(city.gen);genTrees();
   spawnDest(0);spawnHouse(0);spawnHouse(0);
@@ -447,10 +447,6 @@ function genWater(gen){
   }
 }
 function genTrees(){
-  if(S.grid){   // street trees in tidy lines on the gaps between blocks
-    for(let i=0;i<N;i++){const x=X(i),y=Y(i);if(gridMod(x-S.gox,4)===3&&gridMod(y-S.goy,3)!==1&&!S.water[i])S.trees.push({i,dx:0,dy:gridMod(y-S.goy,3)===0?-.18:.18,r:.12,a:1});}
-    return;
-  }
   for(let g=0;g<7;g++){
     const c=ri(0,N-1);
     for(let k=0;k<ri(2,4);k++){
@@ -490,89 +486,60 @@ function pickCell(pred,level){
   return out.length?out[ri(0,out.length-1)]:-1;
 }
 function pickRelaxed(preds){for(let lv=0;lv<(S&&mapFull()?4:3);lv++)for(const p of preds){const i=pickCell(p,lv);if(i>=0)return i;}return -1;}
-/* ---------- neighborhood layout ----------
-   Every 3 rows: a row of lots facing down, a street row, a row of lots facing up.
-   Every 4th column is a gap between blocks. Houses sit on lots with their door on the street. */
-const gridMod=(a,m)=>((a%m)+m)%m;
-function lotDoor(i){
-  const x=X(i),y=Y(i);if(gridMod(x-S.gox,4)===3)return -1;
-  const r=gridMod(y-S.goy,3);return r===0?(y+1<ROWS?i+COLS:-1):r===2?(y>0?i-COLS:-1):-1;
-}
-function gridPick(score,level){
+/* ---------- neighborhood: one downtown of shops, mixed homes around it ---------- */
+function scoredPick(score,level){   // same rules as pickCell, but takes the best-scoring cell
   level=level|0;const B=S.B;let bi=-1,bs=1e9;
   for(let y=B.y0+1;y<B.y1-1;y++)for(let x=B.x0+1;x<B.x1-1;x++){
-    const i=y*COLS+x,dr=lotDoor(i);
-    if(dr<0||!free(i)||doorTaken(i))continue;
-    if(!inB(dr)||S.water[dr]||S.bld[dr]||doorTaken(dr))continue;
-    if(level<1&&!clearOfHud(i))continue;
+    const i=y*COLS+x;
+    if(!free(i)||doorTaken(i))continue;
+    if(level<1?!spaced(i):level<3&&NB4[i].some(j=>S.bld[j]))continue;
+    if(level<2&&!clearOfHud(i))continue;
+    if(!NB4[i].some(doorOK))continue;
     const sc=score(i);if(sc===null)continue;
-    const v=sc+rnd()*.25;if(v<bs){bs=v;bi=i;}
+    const v=sc+rnd()*.3;if(v<bs){bs=v;bi=i;}
   }
   return bi;
 }
-const gdist=(a,b)=>Math.abs(X(a)-X(b))+1.35*Math.abs(Y(a)-Y(b));   // rows fill sideways first
-// Shops (the coloured buildings) cluster into a downtown along a few streets.
-// Homes of every colour mix together everywhere else.
-// A "segment" is one stretch of street: the 3 lots on each side of it (6 lots).
-const fdiv=(a,m)=>Math.floor(a/m);
-const segOf=i=>fdiv(X(i)-S.gox,4)*1000+fdiv(Y(i)-S.goy,3);
-const shopSegs=()=>new Set(S.dests.map(d=>segOf(d.i)));
-const segNear=(k,set)=>{const bx=Math.round(k/1000),bd=k-bx*1000;for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]])if(set.has((bx+dx)*1000+bd+dy))return true;return false;};
-// The stretch of street downtown grows into next: kept free of homes.
-function nextShopSeg(){
-  const segs=shopSegs();if(!segs.size)return null;
-  const cx=S.dests.reduce((a,d)=>a+X(d.i),0)/S.dests.length,cy=S.dests.reduce((a,d)=>a+Y(d.i),0)/S.dests.length;
-  const B=S.B;let best=null,bs=1e9;
-  for(const k of segs){const bx=Math.round(k/1000),bd=k-bx*1000;
-    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const n=(bx+dx)*1000+bd+dy;if(segs.has(n))continue;
-      let lots=0,homes=0,sx=0,sy=0;
-      for(let y=B.y0+1;y<B.y1-1;y++)for(let x=B.x0+1;x<B.x1-1;x++){const i=y*COLS+x;if(lotDoor(i)<0||segOf(i)!==n)continue;if(S.bld[i])homes++;else if(free(i)){lots++;sx+=x;sy+=y;}}
-      if(lots<2)continue;
-      const v=homes*3+Math.abs(sx/lots-cx)+1.2*Math.abs(sy/lots-cy)+(dy?1.5:0);   // prefer carrying on along the same street
-      if(v<bs){bs=v;best=n;}}}
-  return best;
+const LV=[0,1,2];
+const toShops=c=>S.dests.length?Math.min(...S.dests.map(d=>md(c,d.i))):99;
+function shopMid(){   // downtown's centre: where the first shop stands
+  if(!S.dests.length){const B=S.B;return Math.floor((B.x0+B.x1)/2)+Math.floor((B.y0+B.y1)/2)*COLS;}
+  return S.dests[0].i;
 }
-function gridDest(color){
-  const B=S.B,c=Math.floor((B.x0+B.x1)/2)+Math.floor((B.y0+B.y1)/2)*COLS;
-  if(!S.dests.length){for(const lv of [0,1]){const i=gridPick(c0=>md(c0,c),lv);if(i>=0)return i;}return -1;}
-  const segs=shopSegs(),cx=S.dests.reduce((a,d)=>a+X(d.i),0)/S.dests.length,cy=S.dests.reduce((a,d)=>a+Y(d.i),0)/S.dests.length;
-  const toMid=c0=>Math.abs(X(c0)-cx)+1.2*Math.abs(Y(c0)-cy);
-  const hasHome=k=>S.houses.some(h=>segOf(h.i)===k);
-  const nx=nextShopSeg();
-  const tiers=[
-    c0=>segs.has(segOf(c0))?toMid(c0):null,                                   // same high street
-    c0=>segOf(c0)===nx?toMid(c0):null,                                        // the stretch kept for it
-    c0=>{const k=segOf(c0);return segNear(k,segs)&&!hasHome(k)?toMid(c0):null;}, // the next stretch of street
-    c0=>segNear(segOf(c0),segs)?toMid(c0)+1:null,
-    c0=>toMid(c0)+2];
-  for(const t of tiers)for(const lv of [0,1]){const i=gridPick(t,lv);if(i>=0)return i;}
+// Downtown: a round zone in the middle of the shops, kept for shops, that widens as more arrive.
+const downR=()=>1.6+.8*Math.sqrt(Math.max(1,S.dests.length+1));
+const toMidE=(c,mid)=>Math.hypot(X(c)-X(mid),Y(c)-Y(mid));
+function townDest(){
+  const mid=shopMid(),R=downR(),homeAt=(c,r)=>S.houses.some(h=>md(h.i,c)<=r);
+  const tiers=S.dests.length?[
+    c=>toMidE(c,mid)<R+.5&&toShops(c)<=2&&!homeAt(c,1)?md(c,mid):null,   // inside downtown, next to the other shops
+    c=>toMidE(c,mid)<R+1.5&&!homeAt(c,1)?md(c,mid)+1:null,
+    c=>toMidE(c,mid)<R+2.5?md(c,mid)+2:null,
+    c=>md(c,mid)+4]:[c=>md(c,mid)];
+  for(const t of tiers)for(const lv of [0,1,3]){const i=scoredPick(t,lv);if(i>=0)return i;}   // shops may stand side by side
   return -1;
 }
-function gridHouse(color){
-  const own=S.dests.filter(d=>d.color===color);
-  if(!own.length)return -1;
-  const segs=shopSegs(),all=[...S.houses,...S.dests],nx=nextShopSeg();
-  const dd=c0=>Math.min(...own.map(d=>md(c0,d.i)));
-  const near=c0=>Math.min(...all.map(b=>md(c0,b.i)));
-  // homes stay out of downtown, keep the town compact, and land in any colour's street
-  const sameNext=c0=>S.houses.some(h=>h.color===color&&md(h.i,c0)===1)?1.2:0;   // mix it up: avoid matching next-door
-  const score=c0=>{const k=segOf(c0);if(segs.has(k)||k===nx)return null;
-    return (segNear(k,segs)?1:0)+.3*near(c0)+.1*dd(c0)+sameNext(c0)+rnd()*2.2;};
-  for(const lv of [0,1]){const i=gridPick(score,lv);if(i>=0)return i;}
-  if(expand())for(const lv of [0,1]){const i=gridPick(score,lv);if(i>=0)return i;}   // out of lots: the map grows a little
-  for(const lv of [0,1]){const i=gridPick(c0=>segs.has(segOf(c0))?null:dd(c0)+rnd(),lv);if(i>=0)return i;}
-  for(const lv of [0,1]){const i=gridPick(c0=>dd(c0)+rnd(),lv);if(i>=0)return i;}   // only downtown left
-  return -1;
+function townHouse(color){
+  const own=S.dests.filter(d=>d.color===color);if(!own.length)return -1;
+  const dd=c=>Math.min(...own.map(d=>md(c,d.i)));
+  const near=c=>S.houses.length?Math.min(...S.houses.map(h=>md(c,h.i))):toShops(c);
+  const twin=c=>S.houses.some(h=>h.color===color&&md(h.i,c)<=2)?1.3:0;   // mix it up: avoid matching neighbours
+  const mid=shopMid(),R=downR();
+  const score=(gap,zone)=>c=>{const t=toShops(c);if(t<gap)return null;
+    if(zone&&toMidE(c,mid)<R)return null;   // downtown is kept for shops
+    return .45*near(c)+.12*dd(c)+twin(c)+rnd()*1.8;};
+  for(const lv of LV){const i=scoredPick(score(2,true),lv);if(i>=0)return i;}
+  if(expand())for(const lv of LV){const i=scoredPick(score(2,true),lv);if(i>=0)return i;}
+  return -1;   // no room outside downtown: wait for the map to grow
 }
 function spawnDest(color){
-  if(S.grid){
-    let i=gridDest(color);
-    if(i<0&&expand())i=gridDest(color);
+  if(S.town){
+    let i=townDest();
+    if(i<0&&expand())i=townDest();
     if(i>=0){
-      const d={kind:'d',i,door:lotDoor(i),color,busy:0,born:RT,pending:0,inbound:0,stress:0,pinN:0,pinA:new Float32Array(8),rip:[]};
+      const d={kind:'d',i,door:chooseDoor(i,shopMid()),color,busy:0,born:RT,pending:0,inbound:0,stress:0,pinN:0,pinA:new Float32Array(8),rip:[]};
       S.bld[i]=d;S.dests.push(d);d.rip.push(RT+.4);sfx.pop();return d;
     }
-    return null;
   }
   let i=pickCell(c=>S.dests.every(d=>md(c,d.i)>=4));
   if(i<0)i=pickRelaxed([c=>S.dests.every(d=>md(c,d.i)>=3),()=>true]);
@@ -583,10 +550,10 @@ function spawnDest(color){
   S.bld[i]=d;S.dests.push(d);d.rip.push(RT+.4);sfx.pop();return d;
 }
 function spawnHouse(color,urgent){
-  if(S.grid){
-    const i=gridHouse(color);
-    if(i>=0){const h={kind:'h',i,door:lotDoor(i),color,timer:3+rnd()*5,home:true,retry:0,born:RT};S.bld[i]=h;S.houses.push(h);return h;}
-    return null;   // no free lot: wait until the map grows
+  if(S.town){
+    const i=townHouse(color);
+    if(i>=0){const h={kind:'h',i,door:chooseDoor(i,shopMid()),color,timer:3+rnd()*5,home:true,retry:0,born:RT};S.bld[i]=h;S.houses.push(h);return h;}
+    return null;
   }
   const ds=S.dests.filter(d=>d.color===color),hs=S.houses.filter(h=>h.color===color);
   const dm=c=>ds.length?Math.min(...ds.map(d=>md(c,d.i))):4;
@@ -688,6 +655,37 @@ function turnHouse(h,j){
   S.cars=S.cars.filter(c=>!c.dead);
   h.door=j;h.doorBorn=RT;h.turnT=RT;changed=true;edits++;
   tone(LOWP[ri(2,5)]*2,.25,.03,0,'triangle');try{navigator.vibrate&&navigator.vibrate(8);}catch(e){}
+  return true;
+}
+/* ---------- moving buildings: hold one, drag it, let go ---------- */
+let moving=null;
+const doorFree=(b,j)=>j>=0&&inB(j)&&!S.water[j]&&(!S.bld[j]||S.bld[j]===b)&&![...S.houses,...S.dests].some(o=>o!==b&&o.door===j);
+function moveDoorFor(b,to){
+  const opts=NB4[to].filter(j=>j!==b.i||true).filter(j=>doorFree(b,j)&&j!==to);
+  if(!opts.length)return -1;
+  const same=b.door>=0?to+(b.door-b.i):-1;
+  const rank=j=>(S.road[j]?0:2)+(j===same?0:1);   // hook onto a road if there is one, else keep facing the same way
+  return opts.sort((a,c)=>rank(a)-rank(c))[0];
+}
+function canMove(b,to){
+  if(to===b.i)return true;
+  if(to<0||!inB(to)||S.water[to]||S.road[to]||S.bld[to])return false;
+  if([...S.houses,...S.dests].some(o=>o!==b&&o.door===to))return false;   // someone's driveway
+  return moveDoorFor(b,to)>=0;
+}
+function startMove(b,wx,wy){
+  moving={b,to:b.i,ok:true,wx,wy,t:RT};drawing=false;armed=false;pend=null;
+  camMode='hold';holdT=HOLD+3;
+  tone(LOWP[ri(2,5)]*2,.2,.03,0,'triangle');try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}
+}
+function doMove(b,to){
+  const old=b.i,door=moveDoorFor(b,to);if(door<0)return false;
+  if(b.door>=0)S.dwGhost.push({i:old,door:b.door,t:RT});
+  S.bld[old]=null;b.i=to;b.door=door;b.doorBorn=RT;b.turnT=RT;S.bld[to]=b;
+  if(b.kind==='d')b.rip.push(RT);
+  changed=true;edits++;after();          // cars already on their way find the new spot
+  undoStack=[];syncUndo();lastSaveT=-1;
+  sfx.pop();try{navigator.vibrate&&navigator.vibrate(8);}catch(e){}
   return true;
 }
 const mwEndOK=c=>c>=0&&inB(c)&&!S.water[c]&&!S.bld[c];
@@ -951,7 +949,7 @@ function serialize(){
     houses:S.houses.map(h=>[h.i,h.door,h.color,f(h.timer,2)]),
     dests:S.dests.map(d=>[d.i,d.door,d.color,d.pending,f(d.stress,3)]),
     trees:S.trees.map(t=>[t.i,f(t.dx,2),f(t.dy,2),f(t.r,3)]),
-    houseT:f(S.houseT,2),destT:f(S.destT,2),B:{...S.B},gox:S.gox|0,goy:S.goy|0,speed:S.speed,wantColor:!!S.wantColor,target:S.target||0,prevBest:S.prevBest||0,bestShown:!!S.bestShown,beaten:!!S.beaten};
+    houseT:f(S.houseT,2),destT:f(S.destT,2),B:{...S.B},speed:S.speed,wantColor:!!S.wantColor,target:S.target||0,prevBest:S.prevBest||0,bestShown:!!S.bestShown,beaten:!!S.beaten};
 }
 function validSave(o){
   const c=o&&o.cols!==undefined?o.cols:8;   // saves from before the bigger world are 8 wide
@@ -974,7 +972,7 @@ function loadGame(o){
     houses:[],dests:[],cars:[],fades:[],ghosts:[],dwGhost:[],trees:[],
     houseT:num(o.houseT)||6,destT:num(o.destT)||6,over:false,overD:null,paused:false,reward:false,speed:o.speed===2?2:1,wantColor:!!o.wantColor,target:Math.max(0,int(o.target)),prevBest:Math.max(0,int(o.prevBest)),bestShown:!!o.bestShown,beaten:!!o.beaten,xp0:stats.trips,
     B:{x0:clamp(int(o.B&&o.B.x0),0,COLS-1),y0:clamp(int(o.B&&o.B.y0),0,o.rows-1),x1:clamp(int(o.B&&o.B.x1),1,COLS),y1:clamp(int(o.B&&o.B.y1),1,o.rows)}};
-  S.grid=!!city.grid;S.gox=int(o.gox);S.goy=int(o.goy);
+  S.town=!!city.town;
   S.DB={...S.B};
   const a=Array.isArray(o.adj)?o.adj:[];
   for(let k=0;k+1<a.length;k+=2){const i=cell(a[k]),j=cell(a[k+1]);if(i>=0&&j>=0&&S.road[i]&&S.road[j]&&NB8[i].includes(j)){S.adj[i].add(j);S.adj[j].add(i);}}
@@ -1296,7 +1294,6 @@ function growWorld(){
   for(const f of S.frames){f.r=f.r.map(map);f.e=f.e.map(map);f.m=f.m.map(([a,b])=>[map(a),map(b)]);f.b=f.b.map(([i,c,d])=>[map(i),c,d]);f.B={x0:f.B.x0+ox,x1:f.B.x1+ox,y0:f.B.y0+oy,y1:f.B.y1+oy};}
   S.B={x0:S.B.x0+ox,x1:S.B.x1+ox,y0:S.B.y0+oy,y1:S.B.y1+oy};S.DB={x0:S.DB.x0+ox,x1:S.DB.x1+ox,y0:S.DB.y0+oy,y1:S.DB.y1+oy};
   camX+=ox;camY+=oy;anc.wx+=ox;anc.wy+=oy;
-  if(S.grid){S.gox+=ox;S.goy+=oy;}
   S.fades=[];S.ghosts=[];S.dwGhost=[];S.patches=null;undoStack=[];syncUndo();
   edgeCars=new Map();occ=new Int16Array(N);
   return true;
@@ -1333,7 +1330,6 @@ function showShop(focus){
 function showReward(){
   const hasWater=S.water.some(v=>v);
   let pool=[{k:'road',n:12,lbl:'Road tiles'},{k:'bridge',n:hasWater?ri(1,2):1,lbl:'Bridge'},{k:'round',n:1,lbl:'Roundabout'}];
-  if(S.grid&&!hasWater)pool=pool.filter(o=>o.k!=='bridge');   // the neighborhood has no water
   if(S.week>=2)pool.push({k:'mway',n:1,lbl:'Motorway'},{k:'light',n:1,lbl:'Traffic light'});
   if(S.week>=2&&!S.seen.mway)pool=[pool.find(o=>o.k==='mway'),...pool.filter(o=>o.k!=='mway').sort(()=>rnd()-.5)].slice(0,2);  // introduce motorways early
   else pool=pool.sort(()=>rnd()-.5).slice(0,2);
@@ -1345,7 +1341,7 @@ function showReward(){
     if(o.k==='road')S.pieces+=o.n;else if(o.k==='bridge')S.bridges+=o.n;else if(o.k==='mway')S.mways+=o.n;else if(o.k==='light')S.lights+=o.n;else S.rounds+=o.n;
     S.pieces+=10;S.week++;S.weekT=0;
     let grew=expand();
-    if(!grew&&(S.week%2===0||S.grid)&&growWorld())grew=expand();
+    if(!grew&&(S.week%2===0||S.town)&&growWorld())grew=expand();
     let msg=grew?'The map is expanding':'';
     if(S.colors<PAL.length&&(S.colors<5||S.week%2===0)){const m=unlockColor();if(m)msg=m;}
     closeModal();S.reward=false;sfx.week();if(msg)toast(msg);syncHud();
@@ -1387,6 +1383,7 @@ function showHelp(){
   startView='help';
   openModal('<div class="kicker">How to play</div><ul class="tips"><li><i>'+ICON.road+'</i>Drag from a house&rsquo;s driveway to the building of the same colour.</li>'+
     '<li><i>'+ICON.road+'</i>Tap a house, or drag out of it, to point its driveway any way, even diagonally.</li>'+
+    '<li><i>'+ICON.road+'</i>Hold a house or building, then drag it somewhere else to move it.</li>'+
     '<li><i>'+ICON.bridge+'</i>Drag across water to build a bridge.</li>'+
     '<li><i>'+ICON.mway+'</i>Earn motorways, lights and roundabouts weekly, or buy them with road tiles in the shop.</li>'+
     '<li><i>'+ICON.erase+'</i>Erase roads to get the tiles back, or tap undo.</li></ul><button class="primary" id="back">Got it</button>');
@@ -1701,6 +1698,7 @@ cv.addEventListener('pointerdown',e=>{
   const zoomed=camMode==='hold'||camMode==='draw'||Z>bz*1.05;
   drawing=true;armed=false;strokeN=0;lastCell=-1;lastCur=-1;prevCur=-1;skipB=-1;
   pend={c,sx:e.clientX,sy:e.clientY,zoomed};
+  if(c>=0&&S.bld[c]&&!S.over){const p=pend,b=S.bld[c];later(()=>{if(pend===p&&drawing&&!armed&&ptrs.size===1&&S.bld[b.i]===b){const [mx,my]=toWorld(fing.x,fing.y);startMove(b,mx,my);}},420);}
   anc={wx,wy,sx:e.clientX,sy:e.clientY,z:zoomed?Math.max(Z,bz*1.2):Math.max(bz*1.2,Math.min(bz*1.6,84)),t:RT};
   fing.x=e.clientX;fing.y=e.clientY;camMode='draw';
 });
@@ -1712,6 +1710,7 @@ cv.addEventListener('pointermove',e=>{
     camX=pinch.wx-((a.x+b.x)/2-VCX)/Z;camY=pinch.wy-((a.y+b.y)/2-VCY)/Z;clampCam();return;
   }
   if(mwDrag){const [wx,wy]=toWorld(e.clientX,e.clientY);mwDrag.b=cellAtW(wx,wy);mwDrag.ok=mwCheck(mwDrag.a,mwDrag.b);return;}
+  if(moving){const [wx,wy]=toWorld(e.clientX,e.clientY);moving.wx=wx;moving.wy=wy;const c=cellAtW(wx,wy+.35);if(c!==moving.to){moving.to=c;moving.ok=canMove(moving.b,c);if(moving.ok&&c!==moving.b.i)tone(LOWP[ri(3,6)]*2,.08,.012,0,'triangle');}return;}
   if(drawing){
     fing.x=e.clientX;fing.y=e.clientY;
     if(!armed){
@@ -1726,6 +1725,9 @@ function up(e){
   if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);
   if(camMode==='pinch'){if(ptrs.size<2){pinch=null;camMode='hold';holdT=HOLD+1;}return;}
   if(mwDrag){const m=mwDrag;mwDrag=null;if(ptrs.size===0&&m.b!==m.a)placeMw(m.a,m.b);endEdit();return;}
+  if(moving){const m=moving;moving=null;
+    if(m.to!==m.b.i){if(m.ok&&doMove(m.b,m.to)){}else{sfx.deny();m.b.noT=RT;toast('It can’t go there');}}
+    preSnap=null;if(ptrs.size===0)endStroke();return;}
   if(ptrs.size===0&&drawing&&!armed&&pend){
     // a tap (no drag)
     const c=pend.c;
@@ -1776,7 +1778,7 @@ function stubs(i){}
 function driveways(){
   ctx.strokeStyle=ROAD;ctx.lineCap='butt';
   for(const b of [...S.houses,...S.dests]){
-    if(b.door<0)continue;
+    if(b.door<0||(moving&&moving.b===b))continue;
     const k=pop((RT-b.born)/.6)*(b.doorBorn?pop((RT-b.doorBorn)/.35):1);if(k<.01)continue;
     const x=X(b.i)+.5,y=Y(b.i)+.5,m=mid(b.i,b.door),connected=S.road[b.door];
     const ex=x+(m[0]-x)*(connected?1:.98),ey=y+(m[1]-y)*(connected?1:.98);
@@ -1996,18 +1998,6 @@ function render(dt){
   ctx.fillStyle=LAND;ctx.fillRect(vx0,vy0,vw,vh);
   if(!S.patches){S.patches=[];for(let i=0;i<N;i++){const h=(Math.imul(i+1,2654435761)>>>0);if(h%6===0)S.patches.push([X(i)+.5+((h>>>8)%100)/100-.5,Y(i)+.5+((h>>>16)%100)/100-.5,.8+((h>>>24)%60)/100,h%2]);}}
   for(const [px,py,pr,t] of S.patches){ctx.fillStyle=t?PATCHA:PATCHB;circ(px,py,pr);ctx.fill();}
-  if(S.grid){   // neighborhood: soft pads show each lot and which way its door faces
-    const B=S.B,segs=shopSegs();
-    for(const shop of [false,true]){
-      ctx.beginPath();
-      for(let y=B.y0+1;y<B.y1-1;y++)for(let x=B.x0+1;x<B.x1-1;x++){
-        const i=y*COLS+x,dr=lotDoor(i);if(dr<0||S.road[i]||S.water[i]||segs.has(segOf(i))!==shop)continue;
-        rrp(x+.13,y+.13,.74,.74,.17);
-        if(!S.bld[i]){if(dr>i)ctx.rect(x+.42,y+.85,.16,.15);else ctx.rect(x+.42,y,.16,.15);}
-      }
-      ctx.fillStyle=shop?'rgba(250,226,196,.62)':'rgba(255,255,255,.38)';ctx.fill();
-    }
-  }
   for(const t of S.trees){
     t.a=damp(t.a,!S.road[t.i]&&!S.bld[t.i]?1:0,8,dt);if(t.a<.02)continue;
     const x=X(t.i)+.5+t.dx,y=Y(t.i)+.5+t.dy,r=t.r*t.a;
@@ -2038,8 +2028,16 @@ function render(dt){
   S.fades=S.fades.filter(f=>RT-f.t<.35);
   for(const c of S.cars)if(!onMw(c))drawCar(c,dt,1);
   for(const f of S.fades)drawCar(f.c,dt,1-(RT-f.t)/.35);
-  for(const h of S.houses)drawHouse(h,dt);
-  for(const d of S.dests)drawDest(d);
+  for(const h of S.houses)if(!moving||moving.b!==h)drawHouse(h,dt);
+  for(const d of S.dests)if(!moving||moving.b!==d)drawDest(d);
+  if(moving){
+    const b=moving.b,t=moving.to,bx=X(b.i)+.5,by=Y(b.i)+.5,k=easeOut(Math.min(1,(RT-moving.t)/.18));
+    if(t>=0&&t!==b.i){ctx.strokeStyle=moving.ok?'rgba(88,167,108,.95)':'rgba(216,87,74,.95)';ctx.lineWidth=.06;ctx.setLineDash([.13,.09]);rr(X(t)+.07,Y(t)+.07,.86,.86,.2);ctx.stroke();ctx.setLineDash([]);}
+    ctx.strokeStyle='rgba(60,66,74,.25)';ctx.lineWidth=.04;ctx.setLineDash([.1,.08]);rr(X(b.i)+.12,Y(b.i)+.12,.76,.76,.18);ctx.stroke();ctx.setLineDash([]);
+    const fx=moving.wx,fy=moving.wy-.35*k-.15;
+    ctx.save();ctx.translate(fx,fy);ctx.scale(1+.15*k,1+.15*k);ctx.translate(-bx,-by);
+    ctx.globalAlpha=moving.ok||t===b.i?1:.6;b.kind==='h'?drawHouse(b,dt):drawDest(b);ctx.globalAlpha=1;ctx.restore();
+  }
   drawMotorways();
   for(const c of S.cars)if(onMw(c))drawCar(c,dt,1);
   // traffic view
@@ -2124,7 +2122,7 @@ function loop(now){
 }
 resize();newGame(false);pendingSave=readLocal();showStart();requestAnimationFrame(loop);
 if(acct&&lbOn())acctPull().then(ok=>{if(ok&&onStart&&startView==='home')showStart();});
-window.__routes={showShop:k=>showShop(k),SHOP,showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),shareText:()=>shareText(),levelOf,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
+window.__routes={canMove:(b,t)=>canMove(b,t),doMove:(b,t)=>doMove(b,t),get moving(){return moving;},showShop:k=>showShop(k),SHOP,showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),shareText:()=>shareText(),levelOf,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
 })();
 </script>
 </body>
