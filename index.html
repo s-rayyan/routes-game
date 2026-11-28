@@ -2217,7 +2217,7 @@ function render(dt){
     for(const o of hoods()){
       const xs=o.hs.map(h=>X(h.i)+.5),wy=Math.min(...o.hs.map(h=>Y(h.i)))-.62,wx=(Math.min(...xs)+Math.max(...xs))/2;
       const a=Math.min(1,...o.hs.map(h=>pop((RT-h.born)/.8)));if(a<.05)continue;
-      const sx=(wx-camX)*Z+VCX,sy=(wy-camY)*Z+VCY,tw=ctx.measureText(o.name).width+16;
+      const sx=(wx-camX)*Z+VCX,sy=(wy-camY)*Z+VCY,mt=ctx.measureText(o.name),tw=((mt&&mt.width)||o.name.length*6.5)+16;
       if(sy<topH-10||sy>H-botH+10)continue;
       ctx.globalAlpha=.94*a;ctx.fillStyle='rgba(60,50,30,.12)';rr(sx-tw/2,sy-9,tw,20,10);ctx.fill();
       ctx.fillStyle='#fffdf9';rr(sx-tw/2,sy-10,tw,20,10);ctx.fill();
