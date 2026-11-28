@@ -59,6 +59,8 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 @keyframes shake{20%{transform:translateX(-6px)}45%{transform:translateX(5px)}70%{transform:translateX(-3px)}}
 #pausedTag{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 100px);transform:translate(-50%,-6px);background:rgba(60,66,74,.86);color:#fff;font-weight:800;font-size:12px;letter-spacing:.6px;padding:6px 14px;border-radius:999px;opacity:0;transition:opacity .3s,transform .4s cubic-bezier(.2,1.4,.4,1);pointer-events:none}
 #pausedTag.show{opacity:1;transform:translate(-50%,0)}
+#growTag{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 150px);transform:translate(-50%,-6px);background:var(--card);color:var(--ink);box-shadow:var(--sh);font-weight:800;font-size:12px;padding:6px 14px;border-radius:999px;opacity:0;transition:opacity .4s,transform .5s cubic-bezier(.2,1.4,.4,1);pointer-events:none;white-space:nowrap}
+#growTag.show{opacity:1;transform:translate(-50%,0)}
 #hint{z-index:20;position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 118px);transform:translate(-50%,8px);background:var(--card);color:var(--ink);font-weight:800;font-size:14px;padding:10px 16px;border-radius:999px;box-shadow:var(--sh);opacity:0;transition:opacity .4s,transform .5s cubic-bezier(.2,1.4,.4,1);pointer-events:none;white-space:nowrap}
 #hint.show{opacity:1;transform:translate(-50%,0)}
 #toast{z-index:40;position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 104px);transform:translate(-50%,-10px) scale(.96);background:var(--ink);color:#fff;font-weight:700;font-size:14px;padding:10px 18px;border-radius:999px;opacity:0;transition:opacity .35s,transform .45s cubic-bezier(.2,1.4,.4,1);pointer-events:none;white-space:nowrap;box-shadow:var(--sh)}
@@ -194,6 +196,7 @@ h2{font-size:26px;font-weight:900;margin:6px 0 2px}
 </div>
 <div id="targetTag"></div>
 <div id="pausedTag">Paused · build freely</div>
+<div id="growTag"></div>
 <div id="toast"></div>
 <div id="hint"></div>
 <div id="modal"></div>
@@ -233,7 +236,7 @@ const CITIES=[
    pal:{land:'#f0f2ea',out:'#e1e6dc',shore:'#d2e5ec',water:'#a2c6e2',road:'#5c6470',tree:'#cfe0c6',tree2:'#bcd3b1',pa:'rgba(208,222,206,.4)',pb:'rgba(246,248,242,.5)',night:'#6370ad'}},
   {id:'dunes',name:'Dune Town',desc:'Warm sand around one oasis',gen:'oasis',bridges:1,need:['lakes',80],
    pal:{land:'#f6e6c8',out:'#ecd6af',shore:'#d6eade',water:'#86c7cf',road:'#6b645c',tree:'#e3d9a8',tree2:'#d3c88f',pa:'rgba(238,214,170,.45)',pb:'rgba(251,240,218,.5)',night:'#7d72a3'}},
-  {id:'hood',name:'Builder mode',desc:'Unlimited roads, no game over. Little neighbourhoods and shopping streets',gen:'mixed',town:true,limitless:true,bridges:2,
+  {id:'hood',name:'Builder mode',desc:'Endless. Grows as long as you keep it running smoothly',gen:'mixed',town:true,endless:true,bridges:2,
    pal:{land:'#eef3e6',out:'#dde6d3',shore:'#d2e7e8',water:'#a3cfe0',road:'#5b636c',tree:'#c9e0b8',tree2:'#b5d3a1',pa:'rgba(220,232,206,.35)',pb:'rgba(246,249,240,.45)',night:'#6773ab'}}
 ];
 const DAILY_CITIES=CITIES.filter(c=>!c.town);   // the daily map keeps the same rotation of cities
@@ -399,7 +402,7 @@ function newGame(fresh,opts){
     houseT:8,destT:8,over:false,overD:null,paused:false,reward:false,speed:1,
     B:{x0,y0,x1:x0+w0,y1:y0+h0}};
   S.prevBest=daily?(stats.daily[daily]||0):(stats.cityBest[city.id]||0);S.target=opts.target||0;S.xp0=stats.trips;
-  S.town=!!city.town;S.limitless=!!city.limitless;
+  S.town=!!city.town;S.limitless=!!city.limitless;S.endless=!!(city.endless||city.limitless);S.ready=true;
   S.DB={...S.B};
   genWater(city.gen);genTrees();
   spawnDest(0);spawnHouse(0);spawnHouse(0);
@@ -572,7 +575,7 @@ function spawnDest(color){
     let i=townDest();
     if(i<0&&expand())i=townDest();
     if(i>=0){
-      const d={kind:'d',i,door:chooseDoor(i,mapMid()),color,busy:0,born:RT,pending:0,inbound:0,stress:0,pinN:0,pinA:new Float32Array(8),rip:[]};
+      const d={kind:'d',i,door:chooseDoor(i,mapMid()),color,busy:0,born:RT,bornT:S.t,pending:0,inbound:0,stress:0,pinN:0,pinA:new Float32Array(8),rip:[]};
       S.bld[i]=d;S.dests.push(d);d.rip.push(RT+.4);sfx.pop();return d;
     }
   }
@@ -587,7 +590,7 @@ function spawnDest(color){
 function spawnHouse(color,urgent){
   if(S.town){
     const i=townHouse(color);
-    if(i>=0){const h={kind:'h',i,door:chooseDoor(i,nearShop(i,color)),color,timer:3+rnd()*5,home:true,retry:0,born:RT};S.bld[i]=h;S.houses.push(h);return h;}
+    if(i>=0){const h={kind:'h',i,door:chooseDoor(i,nearShop(i,color)),color,timer:3+rnd()*5,home:true,retry:0,born:RT,bornT:S.t};S.bld[i]=h;S.houses.push(h);return h;}
     return null;
   }
   const ds=S.dests.filter(d=>d.color===color),hs=S.houses.filter(h=>h.color===color);
@@ -954,10 +957,12 @@ function step(dt){
   }
   for(const d of S.dests){
     if(d.pending>=OVERFLOW)d.stress+=dt/35;else d.stress=Math.max(0,d.stress-dt/18);
-    if(d.stress>=1){if(S.limitless)d.stress=.999;else{d.stress=1;endGame(d);return;}}   // builder mode never ends
+    if(d.stress>=1){if(S.endless)d.stress=.999;else{d.stress=1;endGame(d);return;}}   // builder mode never ends
   }
+  if(S.endless&&(S.healthT=(S.healthT||0)-dt)<=0){S.healthT=2;townHealth();}
   S.houseT-=dt;
-  if(S.houseT<=0){
+  if(S.houseT<=0&&S.endless&&!S.ready)S.houseT=1.5;   // builder mode: wait until the town is running smoothly
+  else if(S.houseT<=0){
     S.houseT=Math.max(5,13-.55*S.week)*(.8+rnd()*.4);
     const area=(S.B.x1-S.B.x0)*(S.B.y1-S.B.y0);
     if(S.houses.length<area/2.8){
@@ -970,7 +975,7 @@ function step(dt){
   if(S.destT<=0){
     S.destT=6;
     let done=false;
-    if(S.wantColor){const m=unlockColor();if(m){toast(m);done=true;}}
+    if(S.wantColor&&(!S.endless||S.ready)){const m=unlockColor();if(m){toast(m);done=true;}}
     for(let k=0;k<S.colors&&!done;k++){
       const hc=S.houses.filter(h=>h.color===k).length,dc=S.dests.filter(d=>d.color===k).length;
       if(dc===0){if(spawnDest(k)){for(let n=hc;n<2;n++)spawnHouse(k,true);toast('New colour: '+NAMES[k]);}done=true;}   // repair: colour with no building
@@ -996,6 +1001,19 @@ function recordFrame(force){
 }
 const LIMITLESS=999;
 function topUp(){if(S&&S.limitless){S.pieces=S.bridges=S.rounds=S.lights=S.mways=LIMITLESS;}}
+// Builder mode grows only while it works: homes connected, every shop reachable, traffic flowing.
+// (A long queue at a shop isn't a reason to stop: more homes is how it clears.)
+function townHealth(){
+  const old=S.houses.filter(h=>S.t-(h.bornT??-99)>8);
+  const ok=h=>!!route(h.i,b=>b&&b.kind==='d'&&b.color===h.color);
+  const linked=old.filter(ok),miss=old.length-linked.length;
+  const lone=S.dests.some(d=>S.t-(d.bornT??-99)>8&&!S.houses.some(h=>h.color===d.color&&route(h.i,b=>b===d)));
+  const moving=S.cars.length,stuck=S.cars.filter(c=>c.v<VMAX*.12).length,jam=moving>=6&&stuck>moving*.55;
+  const was=S.ready;
+  S.ready=(old.length?linked.length/old.length:1)>=.8&&!lone&&!jam;
+  S.why=S.ready?'':jam?'traffic is jammed':miss>0?miss+' home'+(miss===1?'':'s')+' need a road':'a shop isn’t connected';
+  if(was!==S.ready&&S.t>3)toast(S.ready?'Your town is growing again':'Growth paused: '+S.why);
+}
 function endGame(d){
   S.over=true;S.overD=d;endStroke();camMode='over';sfx.over();
   if(S.score>best){best=S.score;}
@@ -1048,7 +1066,7 @@ function loadGame(o){
     houses:[],dests:[],cars:[],fades:[],ghosts:[],dwGhost:[],trees:[],
     houseT:num(o.houseT)||6,destT:num(o.destT)||6,over:false,overD:null,paused:false,reward:false,speed:o.speed===2?2:1,wantColor:!!o.wantColor,target:Math.max(0,int(o.target)),prevBest:Math.max(0,int(o.prevBest)),bestShown:!!o.bestShown,beaten:!!o.beaten,xp0:stats.trips,
     B:{x0:clamp(int(o.B&&o.B.x0),0,COLS-1),y0:clamp(int(o.B&&o.B.y0),0,o.rows-1),x1:clamp(int(o.B&&o.B.x1),1,COLS),y1:clamp(int(o.B&&o.B.y1),1,o.rows)}};
-  S.town=!!city.town;S.limitless=!!city.limitless;
+  S.town=!!city.town;S.limitless=!!city.limitless;S.endless=!!(city.endless||city.limitless);S.ready=true;
   S.DB={...S.B};
   const a=Array.isArray(o.adj)?o.adj:[];
   for(let k=0;k+1<a.length;k+=2){const i=cell(a[k]),j=cell(a[k+1]);if(i>=0&&j>=0&&S.road[i]&&S.road[j]&&NB8[i].includes(j)){S.adj[i].add(j);S.adj[j].add(i);}}
@@ -1420,7 +1438,10 @@ function showReward(){
     let grew=expand();
     if(!grew&&(S.week%2===0||S.town)&&growWorld())grew=expand();
     let msg=grew?'The map is expanding':'';
-    if(S.colors<PAL.length&&(S.colors<5||S.week%2===0)){const m=unlockColor();if(m)msg=m;}
+    if(S.colors<PAL.length&&(S.colors<5||S.week%2===0)){
+      if(S.endless&&!S.ready){S.wantColor=true;msg='A new colour is waiting for a smoother town';}
+      else{const m=unlockColor();if(m)msg=m;}
+    }
     closeModal();S.reward=false;sfx.week();if(msg)toast(msg);syncHud();
     lastSaveT=-1;saveNow(true);
   });
@@ -2238,6 +2259,8 @@ let hud={};
 function setText(id,v){if(hud[id]===v)return 0;const up=typeof v==='number'&&typeof hud[id]==='number'&&v>hud[id];hud[id]=v;$(id).textContent=v;return up?2:1;}
 function syncHud(force){
   if(force)hud={};
+  {const on=!!(S.endless&&!S.ready&&!S.paused&&!modalOpen&&!S.over),txt=on?'Growth paused · '+S.why:'';
+   if(hud.grow!==txt){hud.grow=txt;const el=$('growTag');if(on)el.textContent=txt;el.classList.toggle('show',on);}}
   {const tg=S.target&&!modalOpen&&!S.over,el=$('targetTag');
    const txt=!S.target?'':S.beaten?'🏁 Beaten! +'+(S.score-S.target):'🏁 Beat '+S.target+' · '+(S.target-S.score+1)+' to go';
    if(hud.tgt!==txt+tg){hud.tgt=txt+tg;el.textContent=txt;el.classList.toggle('show',!!tg);el.classList.toggle('won',!!S.beaten);}}
