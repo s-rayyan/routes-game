@@ -59,6 +59,8 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 @keyframes shake{20%{transform:translateX(-6px)}45%{transform:translateX(5px)}70%{transform:translateX(-3px)}}
 #pausedTag{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 100px);transform:translate(-50%,-6px);background:rgba(60,66,74,.86);color:#fff;font-weight:800;font-size:12px;letter-spacing:.6px;padding:6px 14px;border-radius:999px;opacity:0;transition:opacity .3s,transform .4s cubic-bezier(.2,1.4,.4,1);pointer-events:none}
 #pausedTag.show{opacity:1;transform:translate(-50%,0)}
+#hint{z-index:20;position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 118px);transform:translate(-50%,8px);background:var(--card);color:var(--ink);font-weight:800;font-size:14px;padding:10px 16px;border-radius:999px;box-shadow:var(--sh);opacity:0;transition:opacity .4s,transform .5s cubic-bezier(.2,1.4,.4,1);pointer-events:none;white-space:nowrap}
+#hint.show{opacity:1;transform:translate(-50%,0)}
 #toast{z-index:40;position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 104px);transform:translate(-50%,-10px) scale(.96);background:var(--ink);color:#fff;font-weight:700;font-size:14px;padding:10px 18px;border-radius:999px;opacity:0;transition:opacity .35s,transform .45s cubic-bezier(.2,1.4,.4,1);pointer-events:none;white-space:nowrap;box-shadow:var(--sh)}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 #modal{z-index:30;position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;padding:calc(env(safe-area-inset-top) + 70px) calc(env(safe-area-inset-right) + 12px) calc(env(safe-area-inset-bottom) + 12px) calc(env(safe-area-inset-left) + 12px);background:linear-gradient(180deg,rgba(231,225,212,.08),rgba(231,225,212,.42) 55%,rgba(231,225,212,.6));-webkit-backdrop-filter:blur(1.5px);backdrop-filter:blur(1.5px);opacity:0;pointer-events:none;transition:opacity .35s}
@@ -193,6 +195,7 @@ h2{font-size:26px;font-weight:900;margin:6px 0 2px}
 <div id="targetTag"></div>
 <div id="pausedTag">Paused · build freely</div>
 <div id="toast"></div>
+<div id="hint"></div>
 <div id="modal"></div>
 
 <script>
@@ -230,7 +233,7 @@ const CITIES=[
    pal:{land:'#f0f2ea',out:'#e1e6dc',shore:'#d2e5ec',water:'#a2c6e2',road:'#5c6470',tree:'#cfe0c6',tree2:'#bcd3b1',pa:'rgba(208,222,206,.4)',pb:'rgba(246,248,242,.5)',night:'#6370ad'}},
   {id:'dunes',name:'Dune Town',desc:'Warm sand around one oasis',gen:'oasis',bridges:1,need:['lakes',80],
    pal:{land:'#f6e6c8',out:'#ecd6af',shore:'#d6eade',water:'#86c7cf',road:'#6b645c',tree:'#e3d9a8',tree2:'#d3c88f',pa:'rgba(238,214,170,.45)',pb:'rgba(251,240,218,.5)',night:'#7d72a3'}},
-  {id:'hood',name:'Builder mode',desc:'Unlimited roads, no game over. Shops downtown, homes all around',gen:'mixed',town:true,limitless:true,bridges:2,
+  {id:'hood',name:'Builder mode',desc:'Unlimited roads, no game over. Little neighbourhoods and shopping streets',gen:'mixed',town:true,limitless:true,bridges:2,
    pal:{land:'#eef3e6',out:'#dde6d3',shore:'#d2e7e8',water:'#a3cfe0',road:'#5b636c',tree:'#c9e0b8',tree2:'#b5d3a1',pa:'rgba(220,232,206,.35)',pb:'rgba(246,249,240,.45)',night:'#6773ab'}}
 ];
 const DAILY_CITIES=CITIES.filter(c=>!c.town);   // the daily map keeps the same rotation of cities
@@ -502,25 +505,35 @@ function scoredPick(score,level){   // same rules as pickCell, but takes the bes
 }
 const LV=[0,1,2];
 const toShops=c=>S.dests.length?Math.min(...S.dests.map(d=>md(c,d.i))):99;
-function shopMid(){   // downtown's centre: where the first shop stands
-  if(!S.dests.length){const B=S.B;return Math.floor((B.x0+B.x1)/2)+Math.floor((B.y0+B.y1)/2)*COLS;}
-  return S.dests[0].i;
+const mapMid=()=>{const B=S.B;return Math.floor((B.x0+B.x1)/2)+Math.floor((B.y0+B.y1)/2)*COLS;};
+const nearShop=(i,color)=>{let b=-1,bd=1e9;for(const d of S.dests)if(d.color===color){const v=md(i,d.i);if(v<bd){bd=v;b=d.i;}}return b>=0?b:mapMid();};
+// Stores come in small groups (2-3 shops) spread around town, with space around each group.
+const SHOP_GROUP_MAX=3,SHOP_LINK=2;
+function shopGroups(){
+  const g=new Map();let n=0;
+  for(const d of S.dests){if(g.has(d))continue;const q=[d];g.set(d,n);
+    while(q.length){const u=q.pop();for(const v of S.dests)if(!g.has(v)&&md(u.i,v.i)<=SHOP_LINK){g.set(v,n);q.push(v);}}n++;}
+  return g;
 }
-// Downtown: a round zone in the middle of the shops, kept for shops, that widens as more arrive.
-const downR=()=>1.6+.8*Math.sqrt(Math.max(1,S.dests.length+1));
-const toMidE=(c,mid)=>Math.hypot(X(c)-X(mid),Y(c)-Y(mid));
 function townDest(){
-  const mid=shopMid(),R=downR(),homeAt=(c,r)=>S.houses.some(h=>md(h.i,c)<=r);
-  const tiers=S.dests.length?[
-    c=>toMidE(c,mid)<R+.5&&toShops(c)<=2&&!homeAt(c,2)?md(c,mid):null,   // inside downtown, next to the other shops
-    c=>toMidE(c,mid)<R+1.5&&!homeAt(c,2)?md(c,mid)+1:null,
-    c=>toMidE(c,mid)<R+2.5&&!homeAt(c,1)?md(c,mid)+2:null,
-    c=>toMidE(c,mid)<R+2.5?md(c,mid)+3:null,
-    c=>md(c,mid)+4]:[c=>md(c,mid)];
-  for(const t of tiers)for(const lv of [0,1,3]){const i=scoredPick(t,lv);if(i>=0)return i;}   // shops may stand side by side
+  const B=S.B,mid=Math.floor((B.x0+B.x1)/2)+Math.floor((B.y0+B.y1)/2)*COLS;
+  const homeD=c=>S.houses.length?Math.min(...S.houses.map(h=>md(c,h.i))):99;
+  if(!S.dests.length){for(const lv of [0,1,3]){const i=scoredPick(c=>md(c,mid),lv);if(i>=0)return i;}return -1;}
+  const grp=shopGroups(),size=new Map();for(const v of grp.values())size.set(v,(size.get(v)||0)+1);
+  const score=(homeGap,groupGap)=>c=>{
+    if(homeD(c)<homeGap)return null;
+    let join=-1,joinN=0,nearOther=99;const seen=new Set();
+    for(const d of S.dests){const v=md(c,d.i),g=grp.get(d);if(v<=SHOP_LINK){if(!seen.has(g)){seen.add(g);joinN++;join=g;}}}
+    if(joinN>1)return null;
+    for(const d of S.dests)if(grp.get(d)!==join)nearOther=Math.min(nearOther,md(c,d.i));
+    if(nearOther<groupGap)return null;
+    if(joinN===1)return size.get(join)>=SHOP_GROUP_MAX?null:md(c,mid)*.05+rnd()*.5;   // fill out a small group first
+    return 3+Math.abs(md(c,mid)-4-1.5*grp.size)*.3+rnd()*1.5;   // or open a new group, spreading out from the middle
+  };
+  for(const [hg,gg] of [[3,6],[3,5],[2,4],[2,3],[1,3]])for(const lv of [0,1,3]){const i=scoredPick(score(hg,gg),lv);if(i>=0)return i;}
   return -1;
 }
-// Homes form little neighbourhoods of a few houses, with open ground between groups and around downtown.
+// Homes form little neighbourhoods of a few houses, with open ground between groups.
 const GROUP_MAX=6,GROUP_LINK=2;
 function homeGroups(){   // homes within 2 tiles of each other are one group
   const g=new Map();let n=0;
@@ -532,11 +545,11 @@ function townHouse(color){
   const own=S.dests.filter(d=>d.color===color);if(!own.length)return -1;
   const dd=c=>Math.min(...own.map(d=>md(c,d.i)));
   const twin=c=>S.houses.some(h=>h.color===color&&md(h.i,c)<=2)?1.3:0;   // mix it up: avoid matching neighbours
-  const mid=shopMid(),R=downR(),grp=homeGroups(),size=new Map();
+  const grp=homeGroups(),size=new Map();
   for(const v of grp.values())size.set(v,(size.get(v)||0)+1);
   // gap: empty tiles kept between groups (and between homes and downtown)
   const score=gap=>c=>{
-    if(toShops(c)<gap+1||toMidE(c,mid)<R)return null;   // downtown keeps its own space
+    if(toShops(c)<Math.min(gap,4))return null;   // stores keep some open ground around them
     let join=-1,joinN=0,nearOther=99,nearAny=99;
     const seen=new Set();
     for(const h of S.houses){const d=md(c,h.i),g=grp.get(h);nearAny=Math.min(nearAny,d);
@@ -549,9 +562,9 @@ function townHouse(color){
   };
   // homes in a group may sit right beside each other (levels 1 and 3); a new group starts with the usual spacing
   const pick=g=>{for(const lv of [1,3,0,2]){const i=scoredPick(score(g),lv);if(i>=0)return i;}return -1;};
-  let i=pick(4);if(i>=0)return i;
-  if(expand()){i=pick(4);if(i>=0)return i;}
-  for(const g of [3,2,1]){i=pick(g);if(i>=0)return i;}   // crowded: smaller gaps
+  let i=pick(6);if(i>=0)return i;   // about six open tiles between neighbourhoods
+  if(expand()){i=pick(6);if(i>=0)return i;}
+  for(const g of [5,4,3,2,1]){i=pick(g);if(i>=0)return i;}   // crowded: smaller gaps
   return -1;   // no room: wait for the map to grow
 }
 function spawnDest(color){
@@ -559,7 +572,7 @@ function spawnDest(color){
     let i=townDest();
     if(i<0&&expand())i=townDest();
     if(i>=0){
-      const d={kind:'d',i,door:chooseDoor(i,shopMid()),color,busy:0,born:RT,pending:0,inbound:0,stress:0,pinN:0,pinA:new Float32Array(8),rip:[]};
+      const d={kind:'d',i,door:chooseDoor(i,mapMid()),color,busy:0,born:RT,pending:0,inbound:0,stress:0,pinN:0,pinA:new Float32Array(8),rip:[]};
       S.bld[i]=d;S.dests.push(d);d.rip.push(RT+.4);sfx.pop();return d;
     }
   }
@@ -574,7 +587,7 @@ function spawnDest(color){
 function spawnHouse(color,urgent){
   if(S.town){
     const i=townHouse(color);
-    if(i>=0){const h={kind:'h',i,door:chooseDoor(i,shopMid()),color,timer:3+rnd()*5,home:true,retry:0,born:RT};S.bld[i]=h;S.houses.push(h);return h;}
+    if(i>=0){const h={kind:'h',i,door:chooseDoor(i,nearShop(i,color)),color,timer:3+rnd()*5,home:true,retry:0,born:RT};S.bld[i]=h;S.houses.push(h);return h;}
     return null;
   }
   const ds=S.dests.filter(d=>d.color===color),hs=S.houses.filter(h=>h.color===color);
@@ -2050,6 +2063,34 @@ let vig=null;
 const DAY=WEEK/7,ss2=x=>{x=clamp(x,0,1);return x*x*(3-2*x);};
 function nightAmt(){if(!S||onStart)return 0;const ph=(S.weekT%DAY)/DAY;return ph>.66?ss2((ph-.66)/.18):ph<.14?1-ss2(ph/.14):0;}
 let nightNow=0;
+/* ---------- helpers that make the board easier to read ---------- */
+let linkT=0;
+function updLinks(){   // which houses can't reach a shop of their colour yet
+  if(!S||RT-linkT<.5)return;linkT=RT;
+  for(const h of S.houses){const ok=!!route(h.i,b=>b&&b.kind==='d'&&b.color===h.color);
+    if(ok)h.unT=0;else if(!h.unT)h.unT=RT;}
+}
+let hintDone=false;try{hintDone=!!localStorage.getItem('routes-hint');}catch(e){}
+function hintOn(){
+  if(hintDone||!S||S.over||modalOpen||onStart||!S.houses.length||S.t<1.2)return false;
+  if(S.houses.some(h=>!h.unT&&RT-h.born>.5)){hintDone=true;try{localStorage.setItem('routes-hint','1');}catch(e){}return false;}   // first road built
+  return true;
+}
+function drawHint(){
+  const on=hintOn(),el=$('hint');
+  if(el.classList.contains('show')!==on){el.textContent='Drag from a house to its shop to build a road';el.classList.toggle('show',on);}
+  if(!on)return;
+  const h=S.houses[0],d=S.dests.find(x=>x.color===h.color);if(!d||h.door<0||d.door<0)return;
+  const a=[X(h.door)+.5,Y(h.door)+.5],c=[X(d.door)+.5,Y(d.door)+.5],m=[c[0],a[1]];
+  const seg=[[a,m],[m,c]],L1=Math.abs(m[0]-a[0]),L2=Math.abs(c[1]-m[1]),L=L1+L2||1;
+  const t=((RT*.45)%1.35)/1.1,p=Math.min(1,t)*L,fade=t>1?Math.max(0,1-(t-1)*4):Math.min(1,t*6);
+  const at=q=>q<=L1?[a[0]+Math.sign(m[0]-a[0])*q,a[1]]:[m[0],m[1]+Math.sign(c[1]-m[1])*(q-L1)];
+  ctx.save();ctx.globalAlpha=.35*fade;ctx.strokeStyle=ROAD;ctx.lineWidth=.42;ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.beginPath();ctx.moveTo(a[0],a[1]);if(p>L1){ctx.lineTo(m[0],m[1]);}const e=at(p);ctx.lineTo(e[0],e[1]);ctx.stroke();
+  ctx.globalAlpha=fade;ctx.fillStyle='rgba(60,50,30,.18)';circ(e[0]+.05,e[1]+.08,.24);ctx.fill();
+  ctx.fillStyle='#fff';circ(e[0],e[1],.24);ctx.fill();ctx.fillStyle='rgba(60,66,74,.25)';circ(e[0],e[1],.12);ctx.fill();
+  ctx.restore();
+}
 function render(dt){
   ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle=OUTC;ctx.fillRect(0,0,cv.width,cv.height);
   const k=dpr*Z;ctx.setTransform(k,0,0,k,dpr*(VCX-camX*Z),dpr*(VCY-camY*Z));
@@ -2057,6 +2098,13 @@ function render(dt){
   ctx.fillStyle=LAND;ctx.fillRect(vx0,vy0,vw,vh);
   if(!S.patches){S.patches=[];for(let i=0;i<N;i++){const h=(Math.imul(i+1,2654435761)>>>0);if(h%6===0)S.patches.push([X(i)+.5+((h>>>8)%100)/100-.5,Y(i)+.5+((h>>>16)%100)/100-.5,.8+((h>>>24)%60)/100,h%2]);}}
   for(const [px,py,pr,t] of S.patches){ctx.fillStyle=t?PATCHA:PATCHB;circ(px,py,pr);ctx.fill();}
+  if(S.town&&S.dests.length){   // soft paving under each little group of shops
+    ctx.save();ctx.fillStyle=ctx.strokeStyle='rgba(255,245,226,.78)';ctx.lineWidth=1.5;ctx.lineCap='round';ctx.beginPath();
+    for(const d of S.dests){const s0=pop((RT-d.born)/.8);ctx.moveTo(X(d.i)+.5+.9*s0,Y(d.i)+.5);ctx.arc(X(d.i)+.5,Y(d.i)+.5,.9*s0,0,7);}
+    ctx.fill();ctx.beginPath();
+    for(const a of S.dests)for(const b of S.dests)if(a.i<b.i&&md(a.i,b.i)<=2){ctx.moveTo(X(a.i)+.5,Y(a.i)+.5);ctx.lineTo(X(b.i)+.5,Y(b.i)+.5);}
+    ctx.stroke();ctx.restore();
+  }
   for(const t of S.trees){
     t.a=damp(t.a,!S.road[t.i]&&!S.bld[t.i]?1:0,8,dt);if(t.a<.02)continue;
     const x=X(t.i)+.5+t.dx,y=Y(t.i)+.5+t.dy,r=t.r*t.a;
@@ -2134,7 +2182,15 @@ function render(dt){
     }
     ctx.globalAlpha=1;
   }
+  updLinks();
+  if(!S.over)for(const h of S.houses){
+    if(!h.unT||RT-h.unT<4||(moving&&moving.b===h))continue;   // gives you a moment after a house appears
+    const a=Math.min(1,(RT-h.unT-4)/.6)*(.55+.25*Math.sin(RT*3.2+h.i));
+    ctx.save();ctx.globalAlpha=a;ctx.strokeStyle=PAL[h.color].c;ctx.lineWidth=.055;ctx.setLineDash([.13,.1]);ctx.lineDashOffset=-RT*.3;
+    circ(X(h.i)+.5,Y(h.i)+.5,.5);ctx.stroke();ctx.restore();
+  }
   for(const d of S.dests)drawPins(d,dt);
+  drawHint();
   // soft vignette
   ctx.setTransform(dpr,0,0,dpr,0,0);
   if(!vig||vig.w!==W||vig.h!==H){const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*.42,W/2,H/2,Math.hypot(W,H)*.6);g.addColorStop(0,'rgba(120,100,60,0)');g.addColorStop(1,'rgba(120,100,60,.12)');vig={w:W,h:H,g};}
