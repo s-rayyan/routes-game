@@ -2064,7 +2064,21 @@ const DAY=WEEK/7,ss2=x=>{x=clamp(x,0,1);return x*x*(3-2*x);};
 function nightAmt(){if(!S||onStart)return 0;const ph=(S.weekT%DAY)/DAY;return ph>.66?ss2((ph-.66)/.18):ph<.14?1-ss2(ph/.14):0;}
 let nightNow=0;
 /* ---------- helpers that make the board easier to read ---------- */
-let linkT=0;
+let linkT=0,hoodCache={t:-1,list:[]};
+const HOOD_NAMES=['Maple Row','Elm Park','Willow Bend','Oak Hill','Cedar Court','Birch Lane','Aspen Green','Hazel End','Rose Gardens','Juniper Way','Linden Close','Poplar Rise','Holly Square','Ivy Corner','Laurel Heights','Sycamore Fields'];
+function hoods(){   // Builder mode neighbourhoods: groups of homes, in the order they were founded
+  if(RT-hoodCache.t<.4)return hoodCache.list;hoodCache.t=RT;
+  const g=homeGroups(),by=new Map();
+  for(const h of S.houses){const k=g.get(h);if(!by.has(k))by.set(k,[]);by.get(k).push(h);}
+  const list=[...by.values()].map(hs=>({hs,first:Math.min(...hs.map(h=>S.houses.indexOf(h)))})).sort((a,b)=>a.first-b.first);
+  list.forEach((o,n)=>o.name=HOOD_NAMES[n%HOOD_NAMES.length]+(n>=HOOD_NAMES.length?' '+(1+Math.floor(n/HOOD_NAMES.length)):''));
+  return hoodCache.list=list;
+}
+function hoodPath(hs,r,w){   // a soft blob around a group: circles around homes, joined to close neighbours
+  ctx.beginPath();for(const h of hs){const s0=pop((RT-h.born)/.8)*r;ctx.moveTo(X(h.i)+.5+s0,Y(h.i)+.5);ctx.arc(X(h.i)+.5,Y(h.i)+.5,s0,0,7);}
+  ctx.fill();ctx.beginPath();for(const a of hs)for(const b of hs)if(a.i<b.i&&md(a.i,b.i)<=GROUP_LINK){ctx.moveTo(X(a.i)+.5,Y(a.i)+.5);ctx.lineTo(X(b.i)+.5,Y(b.i)+.5);}
+  ctx.lineWidth=w;ctx.stroke();
+}
 function updLinks(){   // which houses can't reach a shop of their colour yet
   if(!S||RT-linkT<.5)return;linkT=RT;
   for(const h of S.houses){const ok=!!route(h.i,b=>b&&b.kind==='d'&&b.color===h.color);
@@ -2098,6 +2112,14 @@ function render(dt){
   ctx.fillStyle=LAND;ctx.fillRect(vx0,vy0,vw,vh);
   if(!S.patches){S.patches=[];for(let i=0;i<N;i++){const h=(Math.imul(i+1,2654435761)>>>0);if(h%6===0)S.patches.push([X(i)+.5+((h>>>8)%100)/100-.5,Y(i)+.5+((h>>>16)%100)/100-.5,.8+((h>>>24)%60)/100,h%2]);}}
   for(const [px,py,pr,t] of S.patches){ctx.fillStyle=t?PATCHA:PATCHB;circ(px,py,pr);ctx.fill();}
+  if(S.town&&S.houses.length){   // neighbourhood outlines: a thin rim, then a soft fill on top
+    ctx.save();ctx.lineCap='round';
+    for(const o of hoods()){
+      ctx.fillStyle=ctx.strokeStyle='rgba(110,128,96,.32)';hoodPath(o.hs,1.12,2.24);
+      ctx.fillStyle=ctx.strokeStyle='rgba(255,255,250,.42)';hoodPath(o.hs,1.04,2.08);
+    }
+    ctx.restore();
+  }
   if(S.town&&S.dests.length){   // soft paving under each little group of shops
     ctx.save();ctx.fillStyle=ctx.strokeStyle='rgba(255,245,226,.78)';ctx.lineWidth=1.5;ctx.lineCap='round';ctx.beginPath();
     for(const d of S.dests){const s0=pop((RT-d.born)/.8);ctx.moveTo(X(d.i)+.5+.9*s0,Y(d.i)+.5);ctx.arc(X(d.i)+.5,Y(d.i)+.5,.9*s0,0,7);}
@@ -2190,6 +2212,19 @@ function render(dt){
     circ(X(h.i)+.5,Y(h.i)+.5,.5);ctx.stroke();ctx.restore();
   }
   for(const d of S.dests)drawPins(d,dt);
+  if(S.town&&!S.over){   // neighbourhood names, above each group (drawn at screen size so they stay readable)
+    ctx.save();ctx.setTransform(dpr,0,0,dpr,0,0);ctx.font='800 11px Nunito, system-ui, sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    for(const o of hoods()){
+      const xs=o.hs.map(h=>X(h.i)+.5),wy=Math.min(...o.hs.map(h=>Y(h.i)))-.62,wx=(Math.min(...xs)+Math.max(...xs))/2;
+      const a=Math.min(1,...o.hs.map(h=>pop((RT-h.born)/.8)));if(a<.05)continue;
+      const sx=(wx-camX)*Z+VCX,sy=(wy-camY)*Z+VCY,tw=ctx.measureText(o.name).width+16;
+      if(sy<topH-10||sy>H-botH+10)continue;
+      ctx.globalAlpha=.94*a;ctx.fillStyle='rgba(60,50,30,.12)';rr(sx-tw/2,sy-9,tw,20,10);ctx.fill();
+      ctx.fillStyle='#fffdf9';rr(sx-tw/2,sy-10,tw,20,10);ctx.fill();
+      ctx.fillStyle='#5a6068';ctx.fillText(o.name,sx,sy+.5);
+    }
+    ctx.restore();
+  }
   drawHint();
   // soft vignette
   ctx.setTransform(dpr,0,0,dpr,0,0);
