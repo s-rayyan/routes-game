@@ -879,11 +879,17 @@ function onTrip(d){
   if(!S.bestShown&&S.prevBest>=20&&sc>S.prevBest){S.bestShown=true;toast('🎉 New personal best!');confetti(W/2,H*.25,50);tone(784,1.5,.035,1);later(()=>tone(1046.5,1.8,.03,1),140);}
   if(S.target&&!S.beaten&&sc>S.target){S.beaten=true;toast('🏁 Challenge beaten!');confetti(W/2,110,70);later(()=>confetti(W*.25,H*.4,40),250);later(()=>confetti(W*.75,H*.4,40),500);}
 }
+/* ---------- shop levels: busy shops grow and handle more customers ---------- */
+const SHOP_LV=[0,15,40,80];   // deliveries needed for level 1..4
+const shopLv=d=>{let l=1;for(let k=1;k<SHOP_LV.length;k++)if((d.served|0)>=SHOP_LV[k])l=k+1;return l;};
+const shopCap=d=>OVERFLOW+3*(shopLv(d)-1);   // customers a shop can hold before it starts to overflow
 function arriveCar(c){
   if(c.ret){c.dead=true;c.house.home=true;return;}
   const d=c.dest;
   d.pending=Math.max(0,d.pending-1);d.inbound=Math.max(0,d.inbound-1);
-  d.busy=S.t+.25;d.rip.push(RT);if(!S.over){S.score++;stats.trips++;onTrip(d);}sfx.chime(d.color);
+  const l0=shopLv(d);d.served=(d.served|0)+1;
+  d.busy=S.t+.25/Math.sqrt(shopLv(d));d.rip.push(RT);if(!S.over){S.score++;stats.trips++;onTrip(d);}sfx.chime(d.color);
+  if(shopLv(d)>l0){d.lvT=RT;toast('A '+(NAMES[d.color]||'')+' shop levelled up · it can hold '+shopCap(d)+' customers');tone(LOWP[4]*2,.6,.03,0,'triangle');later(()=>tone(LOWP[6]*2,.8,.028,0,'triangle'),120);}
   const back=route(d.i,b=>b===c.house);
   if(back&&back.length>1){c.path=back;c.i=0;c.p=0;c.v=0;c.ret=true;c.k=K(back[0],back[1]);c.len=elen(back[0],back[1]);}
   else{fadeCar(c);c.house.home=true;}
@@ -943,7 +949,7 @@ function step(dt){
     if(h.timer<=0){
       h.timer=iv*(.8+rnd()*.4);
       let bd=null,bm=1e9;for(const d of S.dests)if(d.color===h.color){const m=md(d.i,h.i);if(m<bm){bm=m;bd=d;}}
-      if(bd)bd.pending++;
+      if(bd&&!(S.endless&&(bd.maxed||!S.ready)))bd.pending++;   // builder mode: while growth is paused (or this shop is maxed out) no new orders pile up
     }
     if(!h.home)continue;
     h.retry-=dt;if(h.retry>0)continue;
@@ -956,7 +962,8 @@ function step(dt){
     S.cars.push({path:p,i:0,p:0,v:0,color:h.color,house:h,dest:d,ret:false,wait:0,ang:null,born:RT,dead:false,k:K(p[0],p[1]),len:elen(p[0],p[1])});
   }
   for(const d of S.dests){
-    if(d.pending>=OVERFLOW)d.stress+=dt/35;else d.stress=Math.max(0,d.stress-dt/18);
+    if(d.pending>=shopCap(d))d.stress+=dt/35;else d.stress=Math.max(0,d.stress-dt/18);
+    if(d.stress>=.95)d.maxed=true;else if(d.stress<.5)d.maxed=false;   // full ring = maxed out, until it eases off
     if(d.stress>=1){if(S.endless)d.stress=.999;else{d.stress=1;endGame(d);return;}}   // builder mode never ends
   }
   if(S.endless&&(S.healthT=(S.healthT||0)-dt)<=0){S.healthT=2;townHealth();}
@@ -1008,10 +1015,10 @@ function townHealth(){
   const ok=h=>!!route(h.i,b=>b&&b.kind==='d'&&b.color===h.color);
   const linked=old.filter(ok),miss=old.length-linked.length;
   const lone=S.dests.some(d=>S.t-(d.bornT??-99)>8&&!S.houses.some(h=>h.color===d.color&&route(h.i,b=>b===d)));
-  const moving=S.cars.length,stuck=S.cars.filter(c=>c.v<VMAX*.12).length,jam=moving>=6&&stuck>moving*.55;
+  const moving=S.cars.length,stuck=S.cars.filter(c=>c.v<VMAX*.12).length,jam=moving>=6&&stuck>moving*.55,maxed=S.dests.some(d=>d.maxed);
   const was=S.ready;
-  S.ready=(old.length?linked.length/old.length:1)>=.8&&!lone&&!jam;
-  S.why=S.ready?'':jam?'traffic is jammed':miss>0?miss+' home'+(miss===1?'':'s')+' need a road':'a shop isn’t connected';
+  S.ready=(old.length?linked.length/old.length:1)>=.8&&!lone&&!jam&&!maxed;
+  S.why=S.ready?'':miss>0&&(old.length?linked.length/old.length:1)<.8?miss+' home'+(miss===1?'':'s')+' need a road':lone?'a shop isn’t connected':maxed?'a shop is maxed out':'traffic is jammed';
   if(was!==S.ready&&S.t>3)toast(S.ready?'Your town is growing again':'Growth paused: '+S.why);
 }
 function endGame(d){
@@ -1041,7 +1048,7 @@ function serialize(){
     water:Array.from(S.water).join(''),road:Array.from(S.road).join(''),rb:Array.from(S.rb).join(''),
     span:Array.from(S.span),spans:S.spans.map(p=>[p.n,p.dir]),adj,
     houses:S.houses.map(h=>[h.i,h.door,h.color,f(h.timer,2)]),
-    dests:S.dests.map(d=>[d.i,d.door,d.color,d.pending,f(d.stress,3)]),
+    dests:S.dests.map(d=>[d.i,d.door,d.color,d.pending,f(d.stress,3),d.served|0]),
     trees:S.trees.map(t=>[t.i,f(t.dx,2),f(t.dy,2),f(t.r,3)]),
     houseT:f(S.houseT,2),destT:f(S.destT,2),B:{...S.B},speed:S.speed,wantColor:!!S.wantColor,target:S.target||0,prevBest:S.prevBest||0,bestShown:!!S.bestShown,beaten:!!S.beaten};
 }
@@ -1073,7 +1080,7 @@ function loadGame(o){
   for(const p of (Array.isArray(o.mw)?o.mw:[])){const a=cell(p[0]),b=cell(p[1]);if(a>=0&&b>=0&&a!==b&&S.road[a]&&S.road[b]&&!S.mwAdj[a].has(b)){S.mw.push({a,b,born:-99});S.mwAdj[a].add(b);S.mwAdj[b].add(a);}}
   let k=0;
   for(const d of o.dests){const i=cell(d[0]);if(i<0||S.bld[i])continue;
-    const b={kind:'d',i,door:cell(d[1]),color:clamp(int(d[2]),0,PAL.length-1),busy:0,born:RT+.15+k++*.05,pending:Math.max(0,int(d[3])),inbound:0,stress:clamp(num(d[4]),0,.99),pinN:0,pinA:new Float32Array(8),rip:[]};
+    const b={kind:'d',i,door:cell(d[1]),color:clamp(int(d[2]),0,PAL.length-1),busy:0,born:RT+.15+k++*.05,pending:Math.max(0,int(d[3])),inbound:0,stress:clamp(num(d[4]),0,.99),served:Math.max(0,int(d[5])),pinN:0,pinA:new Float32Array(8),rip:[]};
     S.bld[i]=b;S.dests.push(b);}
   for(const h of o.houses){const i=cell(h[0]);if(i<0||S.bld[i])continue;
     const b={kind:'h',i,door:cell(h[1]),color:clamp(int(h[2]),0,PAL.length-1),timer:num(h[3])||3,home:true,retry:0,born:RT+.15+k++*.03};
@@ -2049,7 +2056,8 @@ function drawDest(d){
   const nw=d.noT?Math.max(0,1-(RT-d.noT)/.4):0,x=X(d.i)+.5+Math.sin(nw*Math.PI*5)*.06*nw,y=Y(d.i)+.5,P=PAL[d.color],bounce=1+.08*Math.max(0,1-(RT-(d.rip.length?d.rip[d.rip.length-1]:-9))/.3);
   for(const t of d.rip){const k=(RT-t)/.8;ctx.strokeStyle=P.c;ctx.globalAlpha=.4*(1-k);ctx.lineWidth=.05;circ(x,y,.45+.5*easeOut(k));ctx.stroke();}
   ctx.globalAlpha=1;d.rip=d.rip.filter(t=>RT-t<.8);
-  const w=.86,r=.17,ss=s*bounce;
+  const lv=shopLv(d),up=d.lvT?Math.max(0,1-(RT-d.lvT)/.9):0,w=.86,r=.17,ss=s*bounce*(1+.045*(lv-1))*(1+.25*Math.sin(up*Math.PI)*up);
+  if(up>0){ctx.strokeStyle=P.c;ctx.globalAlpha=.6*up;ctx.lineWidth=.08;circ(x,y,.5+.9*(1-up));ctx.stroke();ctx.globalAlpha=1;}
   ctx.fillStyle='rgba(80,60,30,.17)';rr(x-w/2*ss+.045,y-w/2*ss+.09,w*ss,w*ss,r*ss);ctx.fill();
   ctx.save();ctx.translate(x,y);d.ang=facing(d,1/60);ctx.rotate(d.ang);ctx.scale(ss,ss);
   ctx.fillStyle=P.d;rr(-w/2,-w/2,w,w,r);ctx.fill();
@@ -2060,6 +2068,10 @@ function drawDest(d){
   ctx.fillStyle=P.l;rr(-.36,-.27,.26,.5,.07);ctx.fill();                                        // the building's roof
   ctx.fillStyle='rgba(255,255,255,.3)';rr(-.33,-.24,.08,.44,.04);ctx.fill();
   ctx.restore();
+  if(lv>1&&s>.9){   // level dots under the shop
+    ctx.fillStyle='rgba(255,253,249,.96)';rr(x-lv*.1-.05,y+.5*ss+.04,lv*.2+.1,.2,.1);ctx.fill();
+    for(let k=0;k<lv;k++){const px=x+(k-(lv-1)/2)*.2,py=y+.5*ss+.14;ctx.fillStyle=P.c;circ(px,py,.055);ctx.fill();}
+  }
 }
 function drawPins(d,dt){
   const x=X(d.i)+.5,y=Y(d.i)+.5,P=PAL[d.color],n=Math.min(d.pending,8);
@@ -2295,7 +2307,7 @@ function loop(now){
 }
 resize();newGame(false);pendingSave=readLocal();showStart();requestAnimationFrame(loop);
 if(acct&&lbOn())acctPull().then(ok=>{if(ok&&onStart&&startView==='home')showStart();});
-window.__routes={canMove:(b,t)=>canMove(b,t),doMove:(b,t)=>doMove(b,t),get moving(){return moving;},showShop:k=>showShop(k),SHOP,showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),shareText:()=>shareText(),levelOf,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
+window.__routes={shopLv:d=>shopLv(d),shopCap:d=>shopCap(d),arriveCar:c=>arriveCar(c),canMove:(b,t)=>canMove(b,t),doMove:(b,t)=>doMove(b,t),get moving(){return moving;},showShop:k=>showShop(k),SHOP,showLeaderboard:(t)=>showLeaderboard(t),get playerName(){return playerName;},saveName:v=>saveName(v),lbInit:()=>lbInit(),onWeb,get challenge(){return challenge;},readChallenge:()=>readChallenge(),shareText:()=>shareText(),levelOf,get bits(){return bits.length;},growWorld:()=>growWorld(),setPaused:p=>setPaused(p),get blockedNow(){return blocked();},playCity:id=>{onStart=false;startView='home';newGame(true,{city:id});closeModal();},playDaily:k=>{onStart=false;newGame(true,{daily:k});closeModal();},get stats(){return stats;},undo:()=>undo(),beginEdit:()=>beginEdit(),endEdit:()=>endEdit(),get undoN(){return undoStack.length;},nightAmt:()=>nightAmt(),CITIES,cityUnlocked:c=>cityUnlocked(c),todayKey,showCities:()=>showCities(),showStats:()=>showStats(),get heatOn(){return heatOn;},setHeat:v=>{heatOn=v;},tapTurn:h=>tapTurn(h),turnBlock:(h,j)=>turnBlock(h,j),placeMw:(a,b)=>placeMw(a,b),placeLight:c=>placeLight(c),removeMw:m=>removeMw(m),greenFor:(a,b)=>greenFor(a,b),unlockColor:()=>unlockColor(),pickCell:(p,l)=>pickCell(p,l),get armed(){return armed;},turnHouse:(h,j)=>turnHouse(h,j),doorOf:i=>S.bld[i]&&S.bld[i].door,get S(){return S;},get cam(){return [Z,camX,camY,camMode,VCY];},step,apply,connect,erase,route,reroute,after,newGame,setTool,showReward,X,Y,get COLS(){return COLS;},get ROWS(){return ROWS;},get N(){return N;},K,serialize,loadGame,saveNow,readLocal};
 })();
 </script>
 </body>
