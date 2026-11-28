@@ -1592,7 +1592,7 @@ function resize(){
   const t=$('top').getBoundingClientRect(),b=$('tray').getBoundingClientRect();
   topH=(t.bottom||70)+8;botH=H-(b.top||H-100)+6;
   VCX=W/2;VCY=H/2;
-  if(S)snapCam();
+  if(S){if(camMode==='idle'||camMode==='over')snapCam();else clampCam();}   // keep your zoom when the browser bars slide
 }
 function viewOf(B){
   const bw=B.x1-B.x0+.7,bh=B.y1-B.y0+.5,aH=H-topH-botH;
@@ -1601,10 +1601,11 @@ function viewOf(B){
 }
 function baseView(){return viewOf(S.DB);}
 function snapCam(){const v=baseView();Z=v[0];camX=v[1];camY=v[2];camMode='idle';}
+const PAN_PAST=1.6;   // how far (in tiles) you can drag the view past the edge of the map
 function clampCam(){
-  const B=S.DB,bv=baseView();
-  let lo=B.x0-.5+VCX/Z,hi=B.x1+.5-(W-VCX)/Z;camX=lo>hi?bv[1]:clamp(camX,lo,hi);
-  lo=B.y0-.4+(VCY-topH)/Z;hi=B.y1+.4-(H-botH-VCY)/Z;camY=lo>hi?bv[2]:clamp(camY,lo,hi);
+  const B=S.DB,bv=baseView(),m=PAN_PAST;
+  let lo=B.x0-.5-m+VCX/Z,hi=B.x1+.5+m-(W-VCX)/Z;camX=lo>hi?bv[1]:clamp(camX,lo,hi);
+  lo=B.y0-.4-m+(VCY-topH)/Z;hi=B.y1+.4+m-(H-botH-VCY)/Z;camY=lo>hi?bv[2]:clamp(camY,lo,hi);
 }
 function updateCam(dt){
   for(const k of ['x0','y0','x1','y1'])S.DB[k]=damp(S.DB[k],S.B[k],2.4,dt);
@@ -1621,13 +1622,7 @@ function updateCam(dt){
     anc.wx=camX+(anc.sx-VCX)/Z;anc.wy=camY+(anc.sy-VCY)/Z;
     if(drawing&&armed)stroke();
   }else if(camMode==='pinch'){clampCam();}
-  else if(camMode==='hold'){
-    holdT-=dt;
-    // something needs attention off-screen: come back out sooner
-    for(const d of S.dests)if(d.stress>.05){const sx=(X(d.i)+.5-camX)*Z+VCX,sy=(Y(d.i)+.5-camY)*Z+VCY;if(sx<0||sx>W||sy<topH||sy>H-botH){holdT=Math.min(holdT,.4);break;}}
-    if(holdT<=0)camMode='idle';
-    clampCam();
-  }
+  else if(camMode==='hold'){clampCam();}   // stays where you left it until you tap empty space or pinch back out
   else if(camMode==='over'&&S.overD){const d=S.overD;Z=damp(Z,bz*1.6,1.8,dt);camX=damp(camX,X(d.i)+.5,1.8,dt);camY=damp(camY,Y(d.i)+.5,1.8,dt);}
   else{Z=damp(Z,bz,3.5,dt);camX=damp(camX,bx,3.5,dt);camY=damp(camY,by,3.5,dt);}
 }
@@ -1736,7 +1731,7 @@ cv.addEventListener('pointermove',e=>{
 });
 function up(e){
   if(!ptrs.has(e.pointerId))return;ptrs.delete(e.pointerId);
-  if(camMode==='pinch'){if(ptrs.size<2){pinch=null;camMode='hold';holdT=HOLD+1;}return;}
+  if(camMode==='pinch'){if(ptrs.size<2){pinch=null;camMode=Z<=baseView()[0]*1.06?'idle':'hold';}return;}
   if(mwDrag){const m=mwDrag;mwDrag=null;if(ptrs.size===0&&m.b!==m.a)placeMw(m.a,m.b);endEdit();return;}
   if(moving){const m=moving;moving=null;
     if(m.to!==m.b.i){if(m.ok&&doMove(m.b,m.to)){}else{sfx.deny();m.b.noT=RT;toast('It can’t go there');}}
