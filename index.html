@@ -680,10 +680,39 @@ function startMove(b,wx,wy){
   camMode='hold';holdT=HOLD+3;
   tone(LOWP[ri(2,5)]*2,.2,.03,0,'triangle');try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}
 }
+// After a move: the shortest new road from one of the building's sides to the nearest road.
+const AUTO_MAX=8;
+function roadPlan(b){
+  const starts=NB4[b.i].filter(j=>doorFree(b,j)&&j!==b.i);
+  const hit=starts.find(j=>S.road[j]);if(hit!==undefined)return [hit];   // already beside a road
+  const prev=new Map(),q=[];
+  for(const j of starts)if(!S.water[j]){prev.set(j,-1);q.push([j,0]);}
+  while(q.length){
+    const [u,d]=q.shift();
+    for(const v of NB4[u]){
+      if(prev.has(v)||!inB(v)||S.water[v]||S.bld[v])continue;
+      prev.set(v,u);
+      if(S.road[v]){const p=[];for(let c=v;c!==-1;c=prev.get(c))p.unshift(c);return p;}
+      if(d+1<AUTO_MAX)q.push([v,d+1]);
+    }
+  }
+  return null;
+}
+function buildPath(p){   // lays road along p like a drawn stroke
+  const t=tool;tool='road';lastCell=-1;
+  for(const c of p)apply(c);
+  lastCell=-1;tool=t;
+}
 function doMove(b,to){
   const old=b.i,door=moveDoorFor(b,to);if(door<0)return false;
   if(b.door>=0)S.dwGhost.push({i:old,door:b.door,t:RT});
   S.bld[old]=null;b.i=to;b.door=door;b.doorBorn=RT;b.turnT=RT;S.bld[to]=b;
+  const plan=roadPlan(b);
+  if(plan){
+    const need=plan.filter(c=>!S.road[c]).length;
+    if(need<=S.pieces){b.door=plan[0];buildPath(plan);}
+    else{toast('Not enough road to connect it ('+need+' needed)');deny('tRoad');}
+  }
   if(b.kind==='d')b.rip.push(RT);
   changed=true;edits++;after();          // cars already on their way find the new spot
   undoStack=[];syncUndo();lastSaveT=-1;
